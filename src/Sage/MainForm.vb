@@ -31,6 +31,7 @@ Public Class MainForm
     Private btnConnect As Button
     Private lstTables As ListView
     Private dgvData As DataGridView
+    Private lstRelations As ListView
     Private lblStatus As Label
 
     Private currentConnectionStringBuilder As SqlConnectionStringBuilder
@@ -89,6 +90,32 @@ Public Class MainForm
         btnConnect = New Button With {.Text = "Conectar y listar tablas", .Location = New Point(150, 192), .Width = 220, .Height = 32}
         StylePrimaryButton(btnConnect)
         AddHandler btnConnect.Click, AddressOf BtnConnect_Click
+
+        Dim lblRelationsTitle As New Label With {
+            .Text = "Relaciones (claves foráneas):",
+            .Location = New Point(600, 15),
+            .Size = New Size(280, 20),
+            .ForeColor = colorText
+        }
+
+        lstRelations = New ListView With {
+            .Location = New Point(600, 38),
+            .Size = New Size(280, 187),
+            .View = View.Details,
+            .FullRowSelect = True,
+            .GridLines = True,
+            .MultiSelect = False,
+            .Anchor = AnchorStyles.Top Or AnchorStyles.Right,
+            .BackColor = colorPanel,
+            .ForeColor = colorText,
+            .BorderStyle = BorderStyle.FixedSingle,
+            .OwnerDraw = True
+        }
+        lstRelations.Columns.Add("Tipo", 100)
+        lstRelations.Columns.Add("Tabla relacionada", 172)
+        AddHandler lstRelations.DrawColumnHeader, AddressOf LstTables_DrawColumnHeader
+        AddHandler lstRelations.DrawItem, AddressOf LstTables_DrawItem
+        AddHandler lstRelations.DrawSubItem, AddressOf LstTables_DrawSubItem
 
         lblStatus = New Label With {
             .Location = New Point(20, 234),
@@ -150,6 +177,7 @@ Public Class MainForm
             lblPassword, txtPassword,
             chkIntegratedSecurity,
             btnConnect,
+            lblRelationsTitle, lstRelations,
             lblStatus,
             lstTables,
             dgvData
@@ -229,6 +257,7 @@ Public Class MainForm
     Private Async Sub BtnConnect_Click(sender As Object, e As EventArgs)
         lstTables.Items.Clear()
         dgvData.DataSource = Nothing
+        lstRelations.Items.Clear()
         lblStatus.ForeColor = colorInfo
         lblStatus.Text = "Conectando..."
         btnConnect.Enabled = False
@@ -274,6 +303,7 @@ Public Class MainForm
         Dim schemaName = e.Item.Text
         Dim tableName = e.Item.SubItems(1).Text
         Await LoadTableDataAsync(schemaName, tableName)
+        Await LoadRelationshipsAsync(schemaName, tableName)
     End Sub
 
     Private Async Function LoadTableDataAsync(schemaName As String, tableName As String) As Task
@@ -304,6 +334,51 @@ Public Class MainForm
         Catch ex As Exception
             lblStatus.ForeColor = colorError
             lblStatus.Text = $"Error cargando datos de {schemaName}.{tableName}: " & ex.Message
+        End Try
+    End Function
+
+    Private Async Function LoadRelationshipsAsync(schemaName As String, tableName As String) As Task
+        lstRelations.Items.Clear()
+        If currentConnectionStringBuilder Is Nothing Then Return
+
+        Try
+            Using connection As New SqlConnection(currentConnectionStringBuilder.ConnectionString)
+                Await connection.OpenAsync()
+
+                Const query As String =
+                    "SELECT " &
+                    "  CASE WHEN fk.parent_object_id = OBJECT_ID(@t) THEN 'Referencia a' ELSE 'Referenciada por' END AS Tipo, " &
+                    "  CASE WHEN fk.parent_object_id = OBJECT_ID(@t) " &
+                    "       THEN OBJECT_SCHEMA_NAME(fk.referenced_object_id) + '.' + OBJECT_NAME(fk.referenced_object_id) " &
+                    "       ELSE OBJECT_SCHEMA_NAME(fk.parent_object_id) + '.' + OBJECT_NAME(fk.parent_object_id) " &
+                    "  END AS TablaRelacionada " &
+                    "FROM sys.foreign_keys fk " &
+                    "WHERE fk.parent_object_id = OBJECT_ID(@t) OR fk.referenced_object_id = OBJECT_ID(@t) " &
+                    "ORDER BY Tipo, TablaRelacionada"
+
+                Using command As New SqlCommand(query, connection)
+                    command.Parameters.AddWithValue("@t", $"{schemaName}.{tableName}")
+                    Using reader = Await command.ExecuteReaderAsync()
+                        While Await reader.ReadAsync()
+                            Dim item As New ListViewItem(reader.GetString(0))
+                            item.SubItems.Add(reader.GetString(1))
+                            lstRelations.Items.Add(item)
+                        End While
+                    End Using
+                End Using
+            End Using
+
+            If lstRelations.Items.Count = 0 Then
+                Dim noneItem As New ListViewItem("—")
+                noneItem.SubItems.Add("Sin relaciones (claves foráneas).")
+                lstRelations.Items.Add(noneItem)
+            End If
+
+        Catch ex As Exception
+            lstRelations.Items.Clear()
+            Dim errorItem As New ListViewItem("Error")
+            errorItem.SubItems.Add(ex.Message)
+            lstRelations.Items.Add(errorItem)
         End Try
     End Function
 
