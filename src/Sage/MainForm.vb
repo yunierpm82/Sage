@@ -3,9 +3,7 @@ Imports System.Drawing
 Imports System.Windows.Forms
 Imports Microsoft.Data.SqlClient
 
-Namespace Sage
-
-    Public Class MainForm
+Public Class MainForm
         Inherits Form
 
         Private txtServer As TextBox
@@ -134,6 +132,4 @@ Namespace Sage
             End Try
         End Sub
 
-    End Class
-
-End Namespace
+End Class
