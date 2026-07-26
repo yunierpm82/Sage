@@ -1,0 +1,14 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+*.user
+
+# Visual Studio
+.vs/
+
+# Inno Setup output
+installer/Output/
+
+# OS
+Thumbs.db
+desktop.ini

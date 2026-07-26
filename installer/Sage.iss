@@ -1,0 +1,40 @@
+; Script de Inno Setup para el instalador de Sage
+; Requiere haber publicado la app primero con:
+;   dotnet publish ..\src\Sage\Sage.vbproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+
+#define MyAppName "Sage"
+#define MyAppVersion "1.0.0"
+#define MyAppPublisher "Yunier"
+#define MyAppExeName "Sage.exe"
+#define PublishDir "..\src\Sage\bin\Release\net8.0-windows\win-x64\publish"
+
+[Setup]
+AppId={{B3B9B8B0-6C1E-4E36-9C2A-2B7B7F0B1A11}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+DefaultDirName={autopf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
+DisableProgramGroupPage=yes
+OutputDir=Output
+OutputBaseFilename=SageSetup
+Compression=lzma
+SolidCompression=yes
+ArchitecturesInstallIn64BitMode=x64compatible
+UninstallDisplayIcon={app}\{#MyAppExeName}
+
+[Languages]
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos adicionales:"
+
+[Files]
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "Ejecutar {#MyAppName}"; Flags: nowait postinstall skipifsilent
