@@ -6,9 +6,6 @@
 # Visual Studio
 .vs/
 
-# Inno Setup output
-installer/Output/
-
 # OS
 Thumbs.db
 desktop.ini
