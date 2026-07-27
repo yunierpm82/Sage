@@ -1,7 +1,9 @@
 Imports System
+Imports System.Collections.Generic
 Imports System.Data
 Imports System.Drawing
 Imports System.IO
+Imports System.Linq
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
 Imports Microsoft.Data.Sql
@@ -46,11 +48,27 @@ Public Class MainForm
     Private txtSagePassword As TextBox
     Private txtExcelPath As TextBox
     Private btnBrowseExcel As Button
+    Private cboBatchTemplate As ComboBox
     Private btnImportBatch As Button
     Private lblBatchStatus As Label
 
     ' --- Panel: GL Booking > Journal Entry (pendiente) ---
     Private pnlJournalEntry As Panel
+
+    ' --- Panel: GL Booking > Relate Columns (mapeo de columnas del Excel) ---
+    Private pnlRelateColumns As Panel
+    Private cboRelateProfile As ComboBox
+    Private btnSaveProfile As Button
+    Private btnDeleteProfile As Button
+    Private btnChooseSample As Button
+    Private lblSampleFile As Label
+    Private lstRequiredColumns As ListBox
+    Private lstActualColumns As ListBox
+    Private pnlLinks As Panel
+    Private lblRelateStatus As Label
+    Private currentColumnMapping As New Dictionary(Of String, String)
+    Private armedRequiredColumn As String = Nothing
+    Private ReadOnly NoTemplateOption As String = "(Sin plantilla — nombres exactos)"
 
     Public Sub New()
         InitializeComponent()
@@ -68,9 +86,10 @@ Public Class MainForm
         pnlDatabase = BuildDatabasePanel()
         pnlBatchList = BuildBatchListPanel()
         pnlJournalEntry = BuildJournalEntryPanel()
+        pnlRelateColumns = BuildRelateColumnsPanel()
 
         Me.MainMenuStrip = menuStrip
-        Me.Controls.AddRange(New Control() {pnlJournalEntry, pnlBatchList, pnlDatabase, menuStrip})
+        Me.Controls.AddRange(New Control() {pnlJournalEntry, pnlRelateColumns, pnlBatchList, pnlDatabase, menuStrip})
 
         ShowPanel(pnlDatabase)
     End Sub
@@ -96,10 +115,13 @@ Public Class MainForm
         Dim mnuGLBooking As New ToolStripMenuItem("GL Booking") With {.ForeColor = colorText}
         Dim mnuJournalEntry As New ToolStripMenuItem("Journal Entry") With {.ForeColor = colorText}
         Dim mnuBatchList As New ToolStripMenuItem("Batch List") With {.ForeColor = colorText}
+        Dim mnuRelateColumns As New ToolStripMenuItem("Relate Columns") With {.ForeColor = colorText}
         AddHandler mnuJournalEntry.Click, Sub() ShowPanel(pnlJournalEntry)
-        AddHandler mnuBatchList.Click, Sub() ShowPanel(pnlBatchList)
+        AddHandler mnuBatchList.Click, AddressOf MnuBatchList_Click
+        AddHandler mnuRelateColumns.Click, AddressOf MnuRelateColumns_Click
         mnuGLBooking.DropDownItems.Add(mnuJournalEntry)
         mnuGLBooking.DropDownItems.Add(mnuBatchList)
+        mnuGLBooking.DropDownItems.Add(mnuRelateColumns)
 
         menuStrip.Items.Add(mnuDataBase)
         menuStrip.Items.Add(mnuGLBooking)
@@ -111,6 +133,31 @@ Public Class MainForm
         pnlDatabase.Visible = (panel Is pnlDatabase)
         pnlBatchList.Visible = (panel Is pnlBatchList)
         pnlJournalEntry.Visible = (panel Is pnlJournalEntry)
+        pnlRelateColumns.Visible = (panel Is pnlRelateColumns)
+    End Sub
+
+    Private Sub MnuBatchList_Click(sender As Object, e As EventArgs)
+        RefreshTemplateList(cboBatchTemplate, includeNoneOption:=True)
+        ShowPanel(pnlBatchList)
+    End Sub
+
+    Private Sub MnuRelateColumns_Click(sender As Object, e As EventArgs)
+        RefreshTemplateList(cboRelateProfile, includeNoneOption:=False)
+        ShowPanel(pnlRelateColumns)
+    End Sub
+
+    Private Sub RefreshTemplateList(comboBox As ComboBox, includeNoneOption As Boolean)
+        Dim currentText = comboBox.Text
+        comboBox.Items.Clear()
+        If includeNoneOption Then comboBox.Items.Add(NoTemplateOption)
+        For Each profileName In Sage300.ColumnMappingStore.ListProfiles()
+            comboBox.Items.Add(profileName)
+        Next
+        If comboBox.Items.Contains(currentText) Then
+            comboBox.Text = currentText
+        ElseIf includeNoneOption Then
+            comboBox.SelectedIndex = 0
+        End If
     End Sub
 
     Private Sub MnuDisconnect_Click(sender As Object, e As EventArgs)
@@ -570,12 +617,21 @@ Public Class MainForm
         StyleSecondaryButton(btnBrowseExcel)
         AddHandler btnBrowseExcel.Click, AddressOf BtnBrowseExcel_Click
 
-        btnImportBatch = New Button With {.Text = "Importar", .Location = New Point(160, 167), .Width = 220, .Height = 32}
+        Dim lblTemplate As New Label With {.Text = "Plantilla de columnas:", .Location = New Point(20, 162), .AutoSize = True, .ForeColor = colorText}
+        cboBatchTemplate = New ComboBox With {
+            .Location = New Point(160, 159),
+            .Width = 300,
+            .DropDownStyle = ComboBoxStyle.DropDownList,
+            .BackColor = colorPanel,
+            .ForeColor = colorText
+        }
+
+        btnImportBatch = New Button With {.Text = "Importar", .Location = New Point(160, 200), .Width = 220, .Height = 32}
         StylePrimaryButton(btnImportBatch)
         AddHandler btnImportBatch.Click, AddressOf BtnImportBatch_Click
 
         lblBatchStatus = New Label With {
-            .Location = New Point(20, 215),
+            .Location = New Point(20, 248),
             .Size = New Size(820, 120),
             .ForeColor = colorInfo,
             .Text = ""
@@ -586,6 +642,7 @@ Public Class MainForm
             lblSageUser, txtSageUser,
             lblSagePassword, txtSagePassword,
             lblExcelPath, txtExcelPath, btnBrowseExcel,
+            lblTemplate, cboBatchTemplate,
             btnImportBatch,
             lblBatchStatus
         })
@@ -626,8 +683,13 @@ Public Class MainForm
         Dim password = txtSagePassword.Text
         Dim path = txtExcelPath.Text
 
+        Dim mapping As Dictionary(Of String, String) = Nothing
+        If cboBatchTemplate.Text <> "" AndAlso cboBatchTemplate.Text <> NoTemplateOption Then
+            mapping = Sage300.ColumnMappingStore.Load(cboBatchTemplate.Text)
+        End If
+
         Try
-            Dim result = Await Task.Run(Function() New Sage300.Sage300BatchImporter().ImportBatch(company, user, password, path))
+            Dim result = Await Task.Run(Function() New Sage300.Sage300BatchImporter().ImportBatch(company, user, password, path, mapping))
             lblBatchStatus.ForeColor = If(result.Success, colorSuccess, colorError)
             lblBatchStatus.Text = result.Message
         Catch ex As Exception
@@ -653,6 +715,220 @@ Public Class MainForm
 
         Return panel
     End Function
+
+    ' ==================== PANEL: GL BOOKING > RELATE COLUMNS ====================
+
+    Private Function BuildRelateColumnsPanel() As Panel
+        Dim panel As New Panel With {.Dock = DockStyle.Fill, .BackColor = colorBackground, .Visible = False}
+
+        Dim lblProfile As New Label With {.Text = "Plantilla:", .Location = New Point(20, 18), .AutoSize = True, .ForeColor = colorText}
+        cboRelateProfile = New ComboBox With {
+            .Location = New Point(100, 15),
+            .Width = 220,
+            .DropDownStyle = ComboBoxStyle.DropDown,
+            .BackColor = colorPanel,
+            .ForeColor = colorText
+        }
+        AddHandler cboRelateProfile.SelectedIndexChanged, AddressOf CboRelateProfile_SelectedIndexChanged
+
+        btnSaveProfile = New Button With {.Text = "Guardar", .Location = New Point(330, 14), .Width = 100, .Height = 26}
+        StylePrimaryButton(btnSaveProfile)
+        AddHandler btnSaveProfile.Click, AddressOf BtnSaveProfile_Click
+
+        btnDeleteProfile = New Button With {.Text = "Eliminar", .Location = New Point(440, 14), .Width = 100, .Height = 26}
+        StyleSecondaryButton(btnDeleteProfile)
+        AddHandler btnDeleteProfile.Click, AddressOf BtnDeleteProfile_Click
+
+        btnChooseSample = New Button With {.Text = "Elegir Excel de muestra...", .Location = New Point(20, 55), .Width = 220, .Height = 26}
+        StyleSecondaryButton(btnChooseSample)
+        AddHandler btnChooseSample.Click, AddressOf BtnChooseSample_Click
+
+        lblSampleFile = New Label With {
+            .Text = "(ningún archivo elegido)",
+            .Location = New Point(250, 59),
+            .Size = New Size(500, 20),
+            .ForeColor = colorText,
+            .AutoEllipsis = True
+        }
+
+        Dim lblRequiredHeader As New Label With {.Text = "Columnas necesarias", .Location = New Point(20, 95), .AutoSize = True, .ForeColor = colorText}
+        Dim lblActualHeader As New Label With {.Text = "Columnas del Excel", .Location = New Point(410, 95), .AutoSize = True, .ForeColor = colorText}
+        Dim lblHint As New Label With {
+            .Text = "Haz clic en una columna de la izquierda y luego en la de la derecha que le corresponde para enlazarlas. Doble clic en la izquierda para quitar un enlace.",
+            .Location = New Point(20, 380),
+            .Size = New Size(650, 40),
+            .ForeColor = colorText
+        }
+
+        lstRequiredColumns = New ListBox With {
+            .Location = New Point(20, 120),
+            .Size = New Size(220, 250),
+            .BackColor = colorPanel,
+            .ForeColor = colorText,
+            .BorderStyle = BorderStyle.FixedSingle,
+            .ItemHeight = 22,
+            .IntegralHeight = False
+        }
+        lstRequiredColumns.Items.AddRange(Sage300.ExcelTransactionReader.RequiredColumnKeys)
+        AddHandler lstRequiredColumns.SelectedIndexChanged, AddressOf LstRequiredColumns_SelectedIndexChanged
+        AddHandler lstRequiredColumns.DoubleClick, AddressOf LstRequiredColumns_DoubleClick
+
+        pnlLinks = New Panel With {
+            .Location = New Point(250, 120),
+            .Size = New Size(150, 250),
+            .BackColor = colorBackground
+        }
+        AddHandler pnlLinks.Paint, AddressOf PnlLinks_Paint
+
+        lstActualColumns = New ListBox With {
+            .Location = New Point(410, 120),
+            .Size = New Size(260, 250),
+            .BackColor = colorPanel,
+            .ForeColor = colorText,
+            .BorderStyle = BorderStyle.FixedSingle,
+            .ItemHeight = 22,
+            .IntegralHeight = False
+        }
+        AddHandler lstActualColumns.SelectedIndexChanged, AddressOf LstActualColumns_SelectedIndexChanged
+
+        lblRelateStatus = New Label With {
+            .Location = New Point(20, 425),
+            .Size = New Size(650, 40),
+            .ForeColor = colorInfo,
+            .Text = ""
+        }
+
+        panel.Controls.AddRange(New Control() {
+            lblProfile, cboRelateProfile, btnSaveProfile, btnDeleteProfile,
+            btnChooseSample, lblSampleFile,
+            lblRequiredHeader, lblActualHeader,
+            lstRequiredColumns, pnlLinks, lstActualColumns,
+            lblHint,
+            lblRelateStatus
+        })
+
+        Return panel
+    End Function
+
+    Private Sub LstRequiredColumns_SelectedIndexChanged(sender As Object, e As EventArgs)
+        If lstRequiredColumns.SelectedItem Is Nothing Then Return
+        armedRequiredColumn = lstRequiredColumns.SelectedItem.ToString()
+        lblRelateStatus.ForeColor = colorInfo
+        lblRelateStatus.Text = $"Selecciona ahora la columna del Excel que corresponde a '{armedRequiredColumn}'."
+    End Sub
+
+    Private Sub LstRequiredColumns_DoubleClick(sender As Object, e As EventArgs)
+        If lstRequiredColumns.SelectedItem Is Nothing Then Return
+        Dim key = lstRequiredColumns.SelectedItem.ToString()
+        If currentColumnMapping.ContainsKey(key) Then
+            currentColumnMapping.Remove(key)
+            lblRelateStatus.ForeColor = colorInfo
+            lblRelateStatus.Text = $"Se quitó el enlace de '{key}'."
+            pnlLinks.Invalidate()
+        End If
+        armedRequiredColumn = Nothing
+    End Sub
+
+    Private Sub LstActualColumns_SelectedIndexChanged(sender As Object, e As EventArgs)
+        If lstActualColumns.SelectedItem Is Nothing OrElse armedRequiredColumn Is Nothing Then Return
+
+        Dim actualColumn = lstActualColumns.SelectedItem.ToString()
+
+        Dim existingKey = currentColumnMapping.
+            Where(Function(kv) kv.Value = actualColumn).
+            Select(Function(kv) kv.Key).
+            FirstOrDefault()
+        If Not String.IsNullOrEmpty(existingKey) Then currentColumnMapping.Remove(existingKey)
+
+        currentColumnMapping(armedRequiredColumn) = actualColumn
+
+        lblRelateStatus.ForeColor = colorSuccess
+        lblRelateStatus.Text = $"'{armedRequiredColumn}' → '{actualColumn}'"
+
+        armedRequiredColumn = Nothing
+        lstRequiredColumns.ClearSelected()
+        lstActualColumns.ClearSelected()
+        pnlLinks.Invalidate()
+    End Sub
+
+    Private Sub PnlLinks_Paint(sender As Object, e As PaintEventArgs)
+        e.Graphics.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias
+
+        For Each mapping In currentColumnMapping
+            Dim leftIndex = lstRequiredColumns.Items.IndexOf(mapping.Key)
+            Dim rightIndex = lstActualColumns.Items.IndexOf(mapping.Value)
+            If leftIndex < 0 OrElse rightIndex < 0 Then Continue For
+
+            Dim yLeft = leftIndex * lstRequiredColumns.ItemHeight + lstRequiredColumns.ItemHeight \ 2
+            Dim yRight = rightIndex * lstActualColumns.ItemHeight + lstActualColumns.ItemHeight \ 2
+
+            Using pen As New Pen(colorAccent, 2)
+                e.Graphics.DrawLine(pen, 0, yLeft, pnlLinks.Width, yRight)
+            End Using
+            Using dotBrush As New SolidBrush(colorAccent)
+                e.Graphics.FillEllipse(dotBrush, -3, yLeft - 3, 6, 6)
+                e.Graphics.FillEllipse(dotBrush, pnlLinks.Width - 3, yRight - 3, 6, 6)
+            End Using
+        Next
+    End Sub
+
+    Private Sub BtnChooseSample_Click(sender As Object, e As EventArgs)
+        Using dialog As New OpenFileDialog With {
+            .Filter = "Archivos Excel (*.xlsx)|*.xlsx",
+            .Title = "Selecciona un Excel de muestra de la aplicación de terceros"
+        }
+            If dialog.ShowDialog() = DialogResult.OK Then
+                Try
+                    Dim headers = Sage300.ExcelTransactionReader.ReadHeaders(dialog.FileName)
+                    lstActualColumns.Items.Clear()
+                    lstActualColumns.Items.AddRange(headers.ToArray())
+                    lblSampleFile.Text = Path.GetFileName(dialog.FileName)
+                    lblRelateStatus.ForeColor = colorSuccess
+                    lblRelateStatus.Text = $"Se encontraron {headers.Count} columna(s) en el archivo."
+                    pnlLinks.Invalidate()
+                Catch ex As Exception
+                    lblRelateStatus.ForeColor = colorError
+                    lblRelateStatus.Text = "Error leyendo el Excel: " & ex.Message
+                End Try
+            End If
+        End Using
+    End Sub
+
+    Private Sub CboRelateProfile_SelectedIndexChanged(sender As Object, e As EventArgs)
+        If String.IsNullOrWhiteSpace(cboRelateProfile.Text) Then Return
+        currentColumnMapping = Sage300.ColumnMappingStore.Load(cboRelateProfile.Text)
+        lblRelateStatus.ForeColor = colorInfo
+        lblRelateStatus.Text = $"Plantilla '{cboRelateProfile.Text}' cargada ({currentColumnMapping.Count} enlace(s))."
+        pnlLinks.Invalidate()
+    End Sub
+
+    Private Sub BtnSaveProfile_Click(sender As Object, e As EventArgs)
+        Dim name = cboRelateProfile.Text.Trim()
+        If String.IsNullOrWhiteSpace(name) Then
+            lblRelateStatus.ForeColor = colorError
+            lblRelateStatus.Text = "Escribe un nombre para la plantilla antes de guardar."
+            Return
+        End If
+
+        Sage300.ColumnMappingStore.Save(name, currentColumnMapping)
+        RefreshTemplateList(cboRelateProfile, includeNoneOption:=False)
+        cboRelateProfile.Text = name
+        lblRelateStatus.ForeColor = colorSuccess
+        lblRelateStatus.Text = $"Plantilla '{name}' guardada con {currentColumnMapping.Count} enlace(s)."
+    End Sub
+
+    Private Sub BtnDeleteProfile_Click(sender As Object, e As EventArgs)
+        Dim name = cboRelateProfile.Text.Trim()
+        If String.IsNullOrWhiteSpace(name) Then Return
+
+        Sage300.ColumnMappingStore.Delete(name)
+        RefreshTemplateList(cboRelateProfile, includeNoneOption:=False)
+        cboRelateProfile.Text = ""
+        currentColumnMapping = New Dictionary(Of String, String)
+        pnlLinks.Invalidate()
+        lblRelateStatus.ForeColor = colorInfo
+        lblRelateStatus.Text = $"Plantilla '{name}' eliminada."
+    End Sub
 
 End Class
 

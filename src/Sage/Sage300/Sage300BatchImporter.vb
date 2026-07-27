@@ -33,11 +33,11 @@ Namespace Sage300
         Private Const SourceLedger As String = "GL"
         Private Const SourceType As String = "AR"
 
-        Public Function ImportBatch(companyId As String, userId As String, password As String, excelPath As String) As Sage300ImportResult
+        Public Function ImportBatch(companyId As String, userId As String, password As String, excelPath As String, Optional columnMapping As Dictionary(Of String, String) = Nothing) As Sage300ImportResult
             Dim session As Object = Nothing
 
             Try
-                Dim entriesByNumber = ExcelTransactionReader.ReadEntries(excelPath).
+                Dim entriesByNumber = ExcelTransactionReader.ReadEntries(excelPath, columnMapping).
                     GroupBy(Function(l) l.EntryNumber).
                     OrderBy(Function(g) g.Key).
                     ToList()

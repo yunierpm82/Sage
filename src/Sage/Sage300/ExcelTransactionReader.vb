@@ -1,5 +1,6 @@
 Imports System
 Imports System.Collections.Generic
+Imports System.Linq
 Imports ClosedXML.Excel
 
 Namespace Sage300
@@ -9,6 +10,10 @@ Namespace Sage300
     ''' TransAmt: positivo = debito, negativo = credito (se pasa directo a SCURNAMT con signo).
     ''' Las filas con el mismo numero de "Entry" forman un solo asiento (journal entry)
     ''' con varias lineas dentro del mismo lote (batch).
+    '''
+    ''' Si el Excel real (de una app de terceros) usa otros nombres de columna, se puede pasar un
+    ''' "columnMapping" (columna requerida -> columna real) generado desde la pantalla
+    ''' GL Booking > Relate Columns.
     Public Class TransactionLine
         Public Property EntryNumber As Integer
         Public Property EntryDate As Date
@@ -20,11 +25,24 @@ Namespace Sage300
 
     Public Class ExcelTransactionReader
 
-        Private Shared ReadOnly RequiredColumns As String() = {
-            "ENTRY", "DATE", "ACCOUNT", "DESCRIPTION", "REFERENCE", "TRANSAMT"
+        Public Shared ReadOnly RequiredColumnKeys As String() = {
+            "Entry", "Date", "Account", "Description", "Reference", "TransAmt"
         }
 
-        Public Shared Function ReadEntries(filePath As String) As List(Of TransactionLine)
+        Public Shared Function ReadHeaders(filePath As String) As List(Of String)
+            Using workbook As New XLWorkbook(filePath)
+                Dim worksheet = workbook.Worksheet(1)
+                Dim headerRow = worksheet.FirstRowUsed()
+                If headerRow Is Nothing Then Return New List(Of String)
+
+                Return headerRow.CellsUsed().
+                    Select(Function(c) c.GetString().Trim()).
+                    Where(Function(s) s <> "").
+                    ToList()
+            End Using
+        End Function
+
+        Public Shared Function ReadEntries(filePath As String, Optional columnMapping As Dictionary(Of String, String) = Nothing) As List(Of TransactionLine)
             Dim result As New List(Of TransactionLine)
 
             Using workbook As New XLWorkbook(filePath)
@@ -39,10 +57,24 @@ Namespace Sage300
                     columnIndex(cell.GetString().Trim().ToUpperInvariant()) = cell.Address.ColumnNumber
                 Next
 
-                For Each columnName In RequiredColumns
-                    If Not columnIndex.ContainsKey(columnName) Then
-                        Throw New Exception($"El archivo Excel debe tener una columna '{columnName}'. Columnas encontradas: {String.Join(", ", columnIndex.Keys)}")
+                Dim resolvedColumn As New Dictionary(Of String, Integer)
+                For Each requiredKey In RequiredColumnKeys
+                    Dim targetHeader = requiredKey
+
+                    If columnMapping IsNot Nothing Then
+                        Dim mappedName = columnMapping.
+                            Where(Function(kv) String.Equals(kv.Key, requiredKey, StringComparison.OrdinalIgnoreCase)).
+                            Select(Function(kv) kv.Value).
+                            FirstOrDefault()
+                        If Not String.IsNullOrWhiteSpace(mappedName) Then targetHeader = mappedName
                     End If
+
+                    Dim lookupKey = targetHeader.Trim().ToUpperInvariant()
+                    If Not columnIndex.ContainsKey(lookupKey) Then
+                        Throw New Exception($"No se encontró la columna '{targetHeader}' (necesaria para '{requiredKey}') en el archivo Excel. Columnas encontradas: {String.Join(", ", columnIndex.Keys)}. Usa GL Booking > Relate Columns para mapear los nombres correctos.")
+                    End If
+
+                    resolvedColumn(requiredKey.ToUpperInvariant()) = columnIndex(lookupKey)
                 Next
 
                 Dim lastRowUsed = worksheet.LastRowUsed()
@@ -55,12 +87,12 @@ Namespace Sage300
                     If row.IsEmpty() Then Continue For
 
                     Dim line As New TransactionLine With {
-                        .EntryNumber = CInt(GetNumberOrZero(row.Cell(columnIndex("ENTRY")))),
-                        .EntryDate = GetDateOrToday(row.Cell(columnIndex("DATE"))),
-                        .Account = row.Cell(columnIndex("ACCOUNT")).GetString().Trim(),
-                        .Description = row.Cell(columnIndex("DESCRIPTION")).GetString().Trim(),
-                        .Reference = row.Cell(columnIndex("REFERENCE")).GetString().Trim(),
-                        .Amount = GetNumberOrZero(row.Cell(columnIndex("TRANSAMT")))
+                        .EntryNumber = CInt(GetNumberOrZero(row.Cell(resolvedColumn("ENTRY")))),
+                        .EntryDate = GetDateOrToday(row.Cell(resolvedColumn("DATE"))),
+                        .Account = row.Cell(resolvedColumn("ACCOUNT")).GetString().Trim(),
+                        .Description = row.Cell(resolvedColumn("DESCRIPTION")).GetString().Trim(),
+                        .Reference = row.Cell(resolvedColumn("REFERENCE")).GetString().Trim(),
+                        .Amount = GetNumberOrZero(row.Cell(resolvedColumn("TRANSAMT")))
                     }
 
                     If String.IsNullOrWhiteSpace(line.Account) Then Continue For
