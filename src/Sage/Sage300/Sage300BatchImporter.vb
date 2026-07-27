@@ -29,11 +29,9 @@ Namespace Sage300
         Private Const ViewDetail As String = "GL0010"
         Private Const ApplicationId As String = "GL"
 
-        ' Codigo de fuente (Source Code) para el ledger GL. En el ejemplo de referencia se usaba
-        ' "TM", que es un codigo propio de esa empresa (Common Services > Source Codes). Ajustar
-        ' si la compania de destino usa un codigo distinto para importaciones de GL.
+        ' Codigo de fuente (Source Code) para el ledger GL, registrado en Common Services > Source Codes.
         Private Const SourceLedger As String = "GL"
-        Private Const SourceType As String = "TM"
+        Private Const SourceType As String = "AR"
 
         Public Function ImportBatch(companyId As String, userId As String, password As String, excelPath As String) As Sage300ImportResult
             Dim session As Object = Nothing
