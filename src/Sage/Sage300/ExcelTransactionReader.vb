@@ -5,15 +5,15 @@ Imports ClosedXML.Excel
 
 Namespace Sage300
 
-    ''' Formato esperado del Excel (primera fila = encabezados, sin importar mayusculas/minusculas):
+    ''' Expected Excel format (first row = headers, case-insensitive):
     ''' Entry | Date | Account | Description | Reference | TransAmt
-    ''' TransAmt: positivo = debito, negativo = credito (se pasa directo a SCURNAMT con signo).
-    ''' Las filas con el mismo numero de "Entry" forman un solo asiento (journal entry)
-    ''' con varias lineas dentro del mismo lote (batch).
+    ''' TransAmt: positive = debit, negative = credit (passed straight to SCURNAMT with its sign).
+    ''' Rows sharing the same "Entry" number form a single journal entry with multiple lines
+    ''' inside the same batch.
     '''
-    ''' Si el Excel real (de una app de terceros) usa otros nombres de columna, se puede pasar un
-    ''' "columnMapping" (columna requerida -> columna real) generado desde la pantalla
-    ''' GL Booking > Relate Columns.
+    ''' If the real Excel (from a third-party application) uses different column names, a
+    ''' "columnMapping" (required column -> real column) generated from the GL Booking >
+    ''' Relate Columns screen can be passed in.
     Public Class TransactionLine
         Public Property EntryNumber As Integer
         Public Property EntryDate As Date
@@ -49,7 +49,7 @@ Namespace Sage300
                 Dim worksheet = workbook.Worksheet(1)
                 Dim headerRow = worksheet.FirstRowUsed()
                 If headerRow Is Nothing Then
-                    Throw New Exception("El archivo Excel está vacío.")
+                    Throw New Exception("The Excel file is empty.")
                 End If
 
                 Dim columnIndex As New Dictionary(Of String, Integer)
@@ -71,7 +71,7 @@ Namespace Sage300
 
                     Dim lookupKey = targetHeader.Trim().ToUpperInvariant()
                     If Not columnIndex.ContainsKey(lookupKey) Then
-                        Throw New Exception($"No se encontró la columna '{targetHeader}' (necesaria para '{requiredKey}') en el archivo Excel. Columnas encontradas: {String.Join(", ", columnIndex.Keys)}. Usa GL Booking > Relate Columns para mapear los nombres correctos.")
+                        Throw New Exception($"Could not find the column '{targetHeader}' (needed for '{requiredKey}') in the Excel file. Columns found: {String.Join(", ", columnIndex.Keys)}. Use GL Booking > Relate Columns to map the correct names.")
                     End If
 
                     resolvedColumn(requiredKey.ToUpperInvariant()) = columnIndex(lookupKey)

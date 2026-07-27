@@ -24,7 +24,7 @@ Public Class MainForm
     Private ReadOnly colorError As Color = Color.FromArgb(240, 120, 120)
     Private ReadOnly colorInfo As Color = Color.FromArgb(120, 180, 240)
 
-    ' --- Panel: conexion a base de datos SQL ---
+    ' --- Panel: SQL database connection ---
     Private pnlDatabase As Panel
     Private cboServer As ComboBox
     Private cboDatabase As ComboBox
@@ -41,7 +41,7 @@ Public Class MainForm
 
     Private currentConnectionStringBuilder As SqlConnectionStringBuilder
 
-    ' --- Panel: GL Booking > Batch List (importacion a Sage 300) ---
+    ' --- Panel: GL Booking > Batch List (import into Sage 300) ---
     Private pnlBatchList As Panel
     Private txtSageCompany As TextBox
     Private txtSageUser As TextBox
@@ -51,11 +51,12 @@ Public Class MainForm
     Private cboBatchTemplate As ComboBox
     Private btnImportBatch As Button
     Private lblBatchStatus As Label
+    Private hasLoadedInitialBatchTemplate As Boolean = False
 
-    ' --- Panel: GL Booking > Journal Entry (pendiente) ---
+    ' --- Panel: GL Booking > Journal Entry (pending) ---
     Private pnlJournalEntry As Panel
 
-    ' --- Panel: GL Booking > Relate Columns (mapeo de columnas del Excel) ---
+    ' --- Panel: GL Booking > Relate Columns (Excel column mapping) ---
     Private pnlRelateColumns As Panel
     Private cboRelateProfile As ComboBox
     Private btnSaveProfile As Button
@@ -68,14 +69,16 @@ Public Class MainForm
     Private lblRelateStatus As Label
     Private currentColumnMapping As New Dictionary(Of String, String)
     Private armedRequiredColumn As String = Nothing
-    Private ReadOnly NoTemplateOption As String = "(Sin plantilla — nombres exactos)"
+    Private currentSamplePath As String = Nothing
+    Private hasLoadedInitialTemplate As Boolean = False
+    Private ReadOnly NoTemplateOption As String = "(No template — exact names)"
 
     Public Sub New()
         InitializeComponent()
     End Sub
 
     Private Sub InitializeComponent()
-        Me.Text = "Sage - Visor de Tablas SQL"
+        Me.Text = "Sage - SQL Table Viewer"
         Me.ClientSize = New Size(900, 650)
         Me.MinimumSize = New Size(760, 500)
         Me.StartPosition = FormStartPosition.CenterScreen
@@ -138,11 +141,30 @@ Public Class MainForm
 
     Private Sub MnuBatchList_Click(sender As Object, e As EventArgs)
         RefreshTemplateList(cboBatchTemplate, includeNoneOption:=True)
+
+        If Not hasLoadedInitialBatchTemplate Then
+            hasLoadedInitialBatchTemplate = True
+            Dim lastTemplate = Sage300.AppSettingsStore.GetLastTemplate()
+            If Not String.IsNullOrWhiteSpace(lastTemplate) AndAlso cboBatchTemplate.Items.Contains(lastTemplate) Then
+                cboBatchTemplate.Text = lastTemplate
+            End If
+        End If
+
         ShowPanel(pnlBatchList)
     End Sub
 
     Private Sub MnuRelateColumns_Click(sender As Object, e As EventArgs)
         RefreshTemplateList(cboRelateProfile, includeNoneOption:=False)
+
+        If Not hasLoadedInitialTemplate Then
+            hasLoadedInitialTemplate = True
+            Dim lastTemplate = Sage300.AppSettingsStore.GetLastTemplate()
+            If Not String.IsNullOrWhiteSpace(lastTemplate) AndAlso cboRelateProfile.Items.Contains(lastTemplate) Then
+                cboRelateProfile.Text = lastTemplate
+                LoadTemplateIntoRelateColumns(lastTemplate)
+            End If
+        End If
+
         ShowPanel(pnlRelateColumns)
     End Sub
 
@@ -166,7 +188,7 @@ Public Class MainForm
         dgvData.DataSource = Nothing
         lstRelations.Items.Clear()
         lblStatus.ForeColor = colorInfo
-        lblStatus.Text = "Desconectado."
+        lblStatus.Text = "Disconnected."
         ShowPanel(pnlDatabase)
     End Sub
 
@@ -175,7 +197,7 @@ Public Class MainForm
     Private Function BuildDatabasePanel() As Panel
         Dim panel As New Panel With {.Dock = DockStyle.Fill, .BackColor = colorBackground}
 
-        Dim lblServer As New Label With {.Text = "Servidor:", .Location = New Point(20, 22), .AutoSize = True, .ForeColor = colorText}
+        Dim lblServer As New Label With {.Text = "Server:", .Location = New Point(20, 22), .AutoSize = True, .ForeColor = colorText}
         cboServer = New ComboBox With {
             .Location = New Point(150, 19),
             .Width = 250,
@@ -184,11 +206,11 @@ Public Class MainForm
             .BackColor = colorPanel,
             .ForeColor = colorText
         }
-        btnDiscoverServers = New Button With {.Text = "Buscar servidores", .Location = New Point(410, 18), .Width = 160, .Height = 26}
+        btnDiscoverServers = New Button With {.Text = "Find servers", .Location = New Point(410, 18), .Width = 160, .Height = 26}
         StyleSecondaryButton(btnDiscoverServers)
         AddHandler btnDiscoverServers.Click, AddressOf BtnDiscoverServers_Click
 
-        Dim lblDatabase As New Label With {.Text = "Base de datos:", .Location = New Point(20, 57), .AutoSize = True, .ForeColor = colorText}
+        Dim lblDatabase As New Label With {.Text = "Database:", .Location = New Point(20, 57), .AutoSize = True, .ForeColor = colorText}
         cboDatabase = New ComboBox With {
             .Location = New Point(150, 54),
             .Width = 250,
@@ -196,30 +218,30 @@ Public Class MainForm
             .BackColor = colorPanel,
             .ForeColor = colorText
         }
-        btnDiscoverDatabases = New Button With {.Text = "Buscar bases de datos", .Location = New Point(410, 53), .Width = 160, .Height = 26}
+        btnDiscoverDatabases = New Button With {.Text = "Find databases", .Location = New Point(410, 53), .Width = 160, .Height = 26}
         StyleSecondaryButton(btnDiscoverDatabases)
         AddHandler btnDiscoverDatabases.Click, AddressOf BtnDiscoverDatabases_Click
 
-        Dim lblUser As New Label With {.Text = "Usuario:", .Location = New Point(20, 92), .AutoSize = True, .ForeColor = colorText}
+        Dim lblUser As New Label With {.Text = "User:", .Location = New Point(20, 92), .AutoSize = True, .ForeColor = colorText}
         txtUser = New TextBox With {.Location = New Point(150, 89), .Width = 250, .BackColor = colorPanel, .ForeColor = colorText, .BorderStyle = BorderStyle.FixedSingle}
 
-        Dim lblPassword As New Label With {.Text = "Contraseña:", .Location = New Point(20, 127), .AutoSize = True, .ForeColor = colorText}
+        Dim lblPassword As New Label With {.Text = "Password:", .Location = New Point(20, 127), .AutoSize = True, .ForeColor = colorText}
         txtPassword = New TextBox With {.Location = New Point(150, 124), .Width = 250, .PasswordChar = "*"c, .BackColor = colorPanel, .ForeColor = colorText, .BorderStyle = BorderStyle.FixedSingle}
 
         chkIntegratedSecurity = New CheckBox With {
-            .Text = "Usar autenticación de Windows (ignora usuario/contraseña)",
+            .Text = "Use Windows authentication (ignores user/password)",
             .Location = New Point(150, 157),
             .AutoSize = True,
             .ForeColor = colorText
         }
         AddHandler chkIntegratedSecurity.CheckedChanged, AddressOf ChkIntegratedSecurity_CheckedChanged
 
-        btnConnect = New Button With {.Text = "Conectar y listar tablas", .Location = New Point(150, 192), .Width = 220, .Height = 32}
+        btnConnect = New Button With {.Text = "Connect and list tables", .Location = New Point(150, 192), .Width = 220, .Height = 32}
         StylePrimaryButton(btnConnect)
         AddHandler btnConnect.Click, AddressOf BtnConnect_Click
 
         Dim lblRelationsTitle As New Label With {
-            .Text = "Relaciones (claves foráneas):",
+            .Text = "Relationships (foreign keys):",
             .Location = New Point(600, 15),
             .Size = New Size(280, 20),
             .ForeColor = colorText
@@ -238,8 +260,8 @@ Public Class MainForm
             .BorderStyle = BorderStyle.FixedSingle,
             .OwnerDraw = True
         }
-        lstRelations.Columns.Add("Tipo", 100)
-        lstRelations.Columns.Add("Tabla relacionada", 172)
+        lstRelations.Columns.Add("Type", 100)
+        lstRelations.Columns.Add("Related table", 172)
         AddHandler lstRelations.DrawColumnHeader, AddressOf ListView_DrawColumnHeader
         AddHandler lstRelations.DrawItem, AddressOf ListView_DrawItem
         AddHandler lstRelations.DrawSubItem, AddressOf ListView_DrawSubItem
@@ -264,7 +286,7 @@ Public Class MainForm
             .BorderStyle = BorderStyle.FixedSingle,
             .OwnerDraw = True
         }
-        lstTables.Columns.Add("Tabla", 256)
+        lstTables.Columns.Add("Table", 256)
         AddHandler lstTables.ItemSelectionChanged, AddressOf LstTables_ItemSelectionChanged
         AddHandler lstTables.DrawColumnHeader, AddressOf ListView_DrawColumnHeader
         AddHandler lstTables.DrawItem, AddressOf ListView_DrawItem
@@ -338,7 +360,7 @@ Public Class MainForm
     End Sub
 
     Private Sub ListView_DrawItem(sender As Object, e As DrawListViewItemEventArgs)
-        ' El dibujo real ocurre en DrawSubItem (vista Details); no se necesita nada aquí.
+        ' The actual drawing happens in DrawSubItem (Details view); nothing needed here.
     End Sub
 
     Private Sub ListView_DrawSubItem(sender As Object, e As DrawListViewSubItemEventArgs)
@@ -387,7 +409,7 @@ Public Class MainForm
         dgvData.DataSource = Nothing
         lstRelations.Items.Clear()
         lblStatus.ForeColor = colorInfo
-        lblStatus.Text = "Conectando..."
+        lblStatus.Text = "Connecting..."
         btnConnect.Enabled = False
 
         Try
@@ -415,7 +437,7 @@ Public Class MainForm
             currentConnectionStringBuilder = builder
 
             lblStatus.ForeColor = colorSuccess
-            lblStatus.Text = $"Conectado correctamente. {lstTables.Items.Count} tabla(s) encontrada(s). Selecciona una tabla para ver sus datos."
+            lblStatus.Text = $"Connected successfully. {lstTables.Items.Count} table(s) found. Select a table to see its data."
 
         Catch ex As Exception
             currentConnectionStringBuilder = Nothing
@@ -440,7 +462,7 @@ Public Class MainForm
 
         dgvData.DataSource = Nothing
         lblStatus.ForeColor = colorInfo
-        lblStatus.Text = $"Cargando datos de {schemaName}.{tableName}..."
+        lblStatus.Text = $"Loading data from {schemaName}.{tableName}..."
 
         Try
             Using connection As New SqlConnection(currentConnectionStringBuilder.ConnectionString)
@@ -458,11 +480,11 @@ Public Class MainForm
             End Using
 
             lblStatus.ForeColor = colorSuccess
-            lblStatus.Text = $"{dgvData.Rows.Count} fila(s) cargada(s) de {schemaName}.{tableName} (máximo 200)."
+            lblStatus.Text = $"{dgvData.Rows.Count} row(s) loaded from {schemaName}.{tableName} (maximum 200)."
 
         Catch ex As Exception
             lblStatus.ForeColor = colorError
-            lblStatus.Text = $"Error cargando datos de {schemaName}.{tableName}: " & ex.Message
+            lblStatus.Text = $"Error loading data from {schemaName}.{tableName}: " & ex.Message
         End Try
     End Function
 
@@ -476,14 +498,14 @@ Public Class MainForm
 
                 Const query As String =
                     "SELECT " &
-                    "  CASE WHEN fk.parent_object_id = OBJECT_ID(@t) THEN 'Referencia a' ELSE 'Referenciada por' END AS Tipo, " &
+                    "  CASE WHEN fk.parent_object_id = OBJECT_ID(@t) THEN 'References' ELSE 'Referenced by' END AS Kind, " &
                     "  CASE WHEN fk.parent_object_id = OBJECT_ID(@t) " &
                     "       THEN OBJECT_SCHEMA_NAME(fk.referenced_object_id) + '.' + OBJECT_NAME(fk.referenced_object_id) " &
                     "       ELSE OBJECT_SCHEMA_NAME(fk.parent_object_id) + '.' + OBJECT_NAME(fk.parent_object_id) " &
-                    "  END AS TablaRelacionada " &
+                    "  END AS RelatedTable " &
                     "FROM sys.foreign_keys fk " &
                     "WHERE fk.parent_object_id = OBJECT_ID(@t) OR fk.referenced_object_id = OBJECT_ID(@t) " &
-                    "ORDER BY Tipo, TablaRelacionada"
+                    "ORDER BY Kind, RelatedTable"
 
                 Using command As New SqlCommand(query, connection)
                     command.Parameters.AddWithValue("@t", $"{schemaName}.{tableName}")
@@ -499,7 +521,7 @@ Public Class MainForm
 
             If lstRelations.Items.Count = 0 Then
                 Dim noneItem As New ListViewItem("—")
-                noneItem.SubItems.Add("Sin relaciones (claves foráneas).")
+                noneItem.SubItems.Add("No relationships (foreign keys).")
                 lstRelations.Items.Add(noneItem)
             End If
 
@@ -514,7 +536,7 @@ Public Class MainForm
     Private Async Sub BtnDiscoverServers_Click(sender As Object, e As EventArgs)
         btnDiscoverServers.Enabled = False
         lblStatus.ForeColor = colorInfo
-        lblStatus.Text = "Buscando servidores SQL en la red... (puede tardar unos segundos)"
+        lblStatus.Text = "Searching for SQL servers on the network... (this may take a few seconds)"
 
         Try
             Dim dataSources = Await Task.Run(Function() SqlDataSourceEnumerator.Instance.GetDataSources())
@@ -532,15 +554,15 @@ Public Class MainForm
             If cboServer.Items.Count > 0 Then
                 cboServer.DroppedDown = True
                 lblStatus.ForeColor = colorSuccess
-                lblStatus.Text = $"Se encontraron {cboServer.Items.Count} servidor(es) en la red local."
+                lblStatus.Text = $"Found {cboServer.Items.Count} server(s) on the local network."
             Else
                 lblStatus.ForeColor = colorError
-                lblStatus.Text = "No se encontraron servidores SQL en la red local."
+                lblStatus.Text = "No SQL servers found on the local network."
             End If
 
         Catch ex As Exception
             lblStatus.ForeColor = colorError
-            lblStatus.Text = "Error buscando servidores: " & ex.Message
+            lblStatus.Text = "Error searching for servers: " & ex.Message
         Finally
             btnDiscoverServers.Enabled = True
         End Try
@@ -549,13 +571,13 @@ Public Class MainForm
     Private Async Sub BtnDiscoverDatabases_Click(sender As Object, e As EventArgs)
         If String.IsNullOrWhiteSpace(cboServer.Text) Then
             lblStatus.ForeColor = colorError
-            lblStatus.Text = "Especifica primero un servidor."
+            lblStatus.Text = "Specify a server first."
             Return
         End If
 
         btnDiscoverDatabases.Enabled = False
         lblStatus.ForeColor = colorInfo
-        lblStatus.Text = "Buscando bases de datos..."
+        lblStatus.Text = "Searching for databases..."
 
         Try
             Dim builder = BuildConnectionStringBuilder("master")
@@ -576,15 +598,15 @@ Public Class MainForm
             If cboDatabase.Items.Count > 0 Then
                 cboDatabase.DroppedDown = True
                 lblStatus.ForeColor = colorSuccess
-                lblStatus.Text = $"Se encontraron {cboDatabase.Items.Count} base(s) de datos."
+                lblStatus.Text = $"Found {cboDatabase.Items.Count} database(s)."
             Else
                 lblStatus.ForeColor = colorError
-                lblStatus.Text = "No se encontraron bases de datos."
+                lblStatus.Text = "No databases found."
             End If
 
         Catch ex As Exception
             lblStatus.ForeColor = colorError
-            lblStatus.Text = "Error buscando bases de datos: " & ex.Message
+            lblStatus.Text = "Error searching for databases: " & ex.Message
         Finally
             btnDiscoverDatabases.Enabled = True
         End Try
@@ -595,16 +617,16 @@ Public Class MainForm
     Private Function BuildBatchListPanel() As Panel
         Dim panel As New Panel With {.Dock = DockStyle.Fill, .BackColor = colorBackground, .Visible = False}
 
-        Dim lblCompany As New Label With {.Text = "Compañía:", .Location = New Point(20, 22), .AutoSize = True, .ForeColor = colorText}
+        Dim lblCompany As New Label With {.Text = "Company:", .Location = New Point(20, 22), .AutoSize = True, .ForeColor = colorText}
         txtSageCompany = New TextBox With {.Location = New Point(160, 19), .Width = 300, .BackColor = colorPanel, .ForeColor = colorText, .BorderStyle = BorderStyle.FixedSingle}
 
-        Dim lblSageUser As New Label With {.Text = "Usuario Sage:", .Location = New Point(20, 57), .AutoSize = True, .ForeColor = colorText}
+        Dim lblSageUser As New Label With {.Text = "Sage user:", .Location = New Point(20, 57), .AutoSize = True, .ForeColor = colorText}
         txtSageUser = New TextBox With {.Location = New Point(160, 54), .Width = 300, .BackColor = colorPanel, .ForeColor = colorText, .BorderStyle = BorderStyle.FixedSingle}
 
-        Dim lblSagePassword As New Label With {.Text = "Contraseña:", .Location = New Point(20, 92), .AutoSize = True, .ForeColor = colorText}
+        Dim lblSagePassword As New Label With {.Text = "Password:", .Location = New Point(20, 92), .AutoSize = True, .ForeColor = colorText}
         txtSagePassword = New TextBox With {.Location = New Point(160, 89), .Width = 300, .PasswordChar = "*"c, .BackColor = colorPanel, .ForeColor = colorText, .BorderStyle = BorderStyle.FixedSingle}
 
-        Dim lblExcelPath As New Label With {.Text = "Archivo Excel (.xlsx):", .Location = New Point(20, 127), .AutoSize = True, .ForeColor = colorText}
+        Dim lblExcelPath As New Label With {.Text = "Excel file (.xlsx):", .Location = New Point(20, 127), .AutoSize = True, .ForeColor = colorText}
         txtExcelPath = New TextBox With {
             .Location = New Point(160, 124),
             .Width = 380,
@@ -613,11 +635,11 @@ Public Class MainForm
             .ForeColor = colorText,
             .BorderStyle = BorderStyle.FixedSingle
         }
-        btnBrowseExcel = New Button With {.Text = "Elegir...", .Location = New Point(548, 123), .Width = 90, .Height = 26}
+        btnBrowseExcel = New Button With {.Text = "Choose...", .Location = New Point(548, 123), .Width = 90, .Height = 26}
         StyleSecondaryButton(btnBrowseExcel)
         AddHandler btnBrowseExcel.Click, AddressOf BtnBrowseExcel_Click
 
-        Dim lblTemplate As New Label With {.Text = "Plantilla de columnas:", .Location = New Point(20, 162), .AutoSize = True, .ForeColor = colorText}
+        Dim lblTemplate As New Label With {.Text = "Column template:", .Location = New Point(20, 162), .AutoSize = True, .ForeColor = colorText}
         cboBatchTemplate = New ComboBox With {
             .Location = New Point(160, 159),
             .Width = 300,
@@ -626,7 +648,7 @@ Public Class MainForm
             .ForeColor = colorText
         }
 
-        btnImportBatch = New Button With {.Text = "Importar", .Location = New Point(160, 200), .Width = 220, .Height = 32}
+        btnImportBatch = New Button With {.Text = "Import", .Location = New Point(160, 200), .Width = 220, .Height = 32}
         StylePrimaryButton(btnImportBatch)
         AddHandler btnImportBatch.Click, AddressOf BtnImportBatch_Click
 
@@ -652,8 +674,8 @@ Public Class MainForm
 
     Private Sub BtnBrowseExcel_Click(sender As Object, e As EventArgs)
         Using dialog As New OpenFileDialog With {
-            .Filter = "Archivos Excel (*.xlsx)|*.xlsx",
-            .Title = "Selecciona el archivo de transacciones"
+            .Filter = "Excel files (*.xlsx)|*.xlsx",
+            .Title = "Select the transactions file"
         }
             If dialog.ShowDialog() = DialogResult.OK Then
                 txtExcelPath.Text = dialog.FileName
@@ -664,19 +686,19 @@ Public Class MainForm
     Private Async Sub BtnImportBatch_Click(sender As Object, e As EventArgs)
         If String.IsNullOrWhiteSpace(txtSageCompany.Text) OrElse String.IsNullOrWhiteSpace(txtSageUser.Text) Then
             lblBatchStatus.ForeColor = colorError
-            lblBatchStatus.Text = "Especifica la compañía y el usuario de Sage."
+            lblBatchStatus.Text = "Specify the Sage company and user."
             Return
         End If
 
         If String.IsNullOrWhiteSpace(txtExcelPath.Text) OrElse Not File.Exists(txtExcelPath.Text) Then
             lblBatchStatus.ForeColor = colorError
-            lblBatchStatus.Text = "Selecciona un archivo Excel válido."
+            lblBatchStatus.Text = "Select a valid Excel file."
             Return
         End If
 
         btnImportBatch.Enabled = False
         lblBatchStatus.ForeColor = colorInfo
-        lblBatchStatus.Text = "Importando..."
+        lblBatchStatus.Text = "Importing..."
 
         Dim company = txtSageCompany.Text.Trim()
         Dim user = txtSageUser.Text.Trim()
@@ -694,19 +716,19 @@ Public Class MainForm
             lblBatchStatus.Text = result.Message
         Catch ex As Exception
             lblBatchStatus.ForeColor = colorError
-            lblBatchStatus.Text = "Error inesperado: " & ex.Message
+            lblBatchStatus.Text = "Unexpected error: " & ex.Message
         Finally
             btnImportBatch.Enabled = True
         End Try
     End Sub
 
-    ' ==================== PANEL: GL BOOKING > JOURNAL ENTRY (pendiente) ====================
+    ' ==================== PANEL: GL BOOKING > JOURNAL ENTRY (pending) ====================
 
     Private Function BuildJournalEntryPanel() As Panel
         Dim panel As New Panel With {.Dock = DockStyle.Fill, .BackColor = colorBackground, .Visible = False}
 
         Dim lblComingSoon As New Label With {
-            .Text = "Journal Entry — próximamente.",
+            .Text = "Journal Entry — coming soon.",
             .Location = New Point(20, 20),
             .AutoSize = True,
             .ForeColor = colorText
@@ -721,7 +743,7 @@ Public Class MainForm
     Private Function BuildRelateColumnsPanel() As Panel
         Dim panel As New Panel With {.Dock = DockStyle.Fill, .BackColor = colorBackground, .Visible = False}
 
-        Dim lblProfile As New Label With {.Text = "Plantilla:", .Location = New Point(20, 18), .AutoSize = True, .ForeColor = colorText}
+        Dim lblProfile As New Label With {.Text = "Template:", .Location = New Point(20, 18), .AutoSize = True, .ForeColor = colorText}
         cboRelateProfile = New ComboBox With {
             .Location = New Point(100, 15),
             .Width = 220,
@@ -731,30 +753,30 @@ Public Class MainForm
         }
         AddHandler cboRelateProfile.SelectedIndexChanged, AddressOf CboRelateProfile_SelectedIndexChanged
 
-        btnSaveProfile = New Button With {.Text = "Guardar", .Location = New Point(330, 14), .Width = 100, .Height = 26}
+        btnSaveProfile = New Button With {.Text = "Save", .Location = New Point(330, 14), .Width = 100, .Height = 26}
         StylePrimaryButton(btnSaveProfile)
         AddHandler btnSaveProfile.Click, AddressOf BtnSaveProfile_Click
 
-        btnDeleteProfile = New Button With {.Text = "Eliminar", .Location = New Point(440, 14), .Width = 100, .Height = 26}
+        btnDeleteProfile = New Button With {.Text = "Delete", .Location = New Point(440, 14), .Width = 100, .Height = 26}
         StyleSecondaryButton(btnDeleteProfile)
         AddHandler btnDeleteProfile.Click, AddressOf BtnDeleteProfile_Click
 
-        btnChooseSample = New Button With {.Text = "Elegir Excel de muestra...", .Location = New Point(20, 55), .Width = 220, .Height = 26}
+        btnChooseSample = New Button With {.Text = "Choose sample Excel...", .Location = New Point(20, 55), .Width = 220, .Height = 26}
         StyleSecondaryButton(btnChooseSample)
         AddHandler btnChooseSample.Click, AddressOf BtnChooseSample_Click
 
         lblSampleFile = New Label With {
-            .Text = "(ningún archivo elegido)",
+            .Text = "(no file selected)",
             .Location = New Point(250, 59),
             .Size = New Size(500, 20),
             .ForeColor = colorText,
             .AutoEllipsis = True
         }
 
-        Dim lblRequiredHeader As New Label With {.Text = "Columnas necesarias", .Location = New Point(20, 95), .AutoSize = True, .ForeColor = colorText}
-        Dim lblActualHeader As New Label With {.Text = "Columnas del Excel", .Location = New Point(410, 95), .AutoSize = True, .ForeColor = colorText}
+        Dim lblRequiredHeader As New Label With {.Text = "Required columns", .Location = New Point(20, 95), .AutoSize = True, .ForeColor = colorText}
+        Dim lblActualHeader As New Label With {.Text = "Excel columns", .Location = New Point(410, 95), .AutoSize = True, .ForeColor = colorText}
         Dim lblHint As New Label With {
-            .Text = "Haz clic en una columna de la izquierda y luego en la de la derecha que le corresponde para enlazarlas. Doble clic en la izquierda para quitar un enlace.",
+            .Text = "Click a column on the left, then the matching one on the right to link them. Double-click a column on the left to remove its link.",
             .Location = New Point(20, 380),
             .Size = New Size(650, 40),
             .ForeColor = colorText
@@ -814,7 +836,7 @@ Public Class MainForm
         If lstRequiredColumns.SelectedItem Is Nothing Then Return
         armedRequiredColumn = lstRequiredColumns.SelectedItem.ToString()
         lblRelateStatus.ForeColor = colorInfo
-        lblRelateStatus.Text = $"Selecciona ahora la columna del Excel que corresponde a '{armedRequiredColumn}'."
+        lblRelateStatus.Text = $"Now select the Excel column that corresponds to '{armedRequiredColumn}'."
     End Sub
 
     Private Sub LstRequiredColumns_DoubleClick(sender As Object, e As EventArgs)
@@ -823,7 +845,7 @@ Public Class MainForm
         If currentColumnMapping.ContainsKey(key) Then
             currentColumnMapping.Remove(key)
             lblRelateStatus.ForeColor = colorInfo
-            lblRelateStatus.Text = $"Se quitó el enlace de '{key}'."
+            lblRelateStatus.Text = $"Removed the link for '{key}'."
             pnlLinks.Invalidate()
         End If
         armedRequiredColumn = Nothing
@@ -874,8 +896,8 @@ Public Class MainForm
 
     Private Sub BtnChooseSample_Click(sender As Object, e As EventArgs)
         Using dialog As New OpenFileDialog With {
-            .Filter = "Archivos Excel (*.xlsx)|*.xlsx",
-            .Title = "Selecciona un Excel de muestra de la aplicación de terceros"
+            .Filter = "Excel files (*.xlsx)|*.xlsx",
+            .Title = "Select a sample Excel from the third-party application"
         }
             If dialog.ShowDialog() = DialogResult.OK Then
                 Try
@@ -883,22 +905,44 @@ Public Class MainForm
                     lstActualColumns.Items.Clear()
                     lstActualColumns.Items.AddRange(headers.ToArray())
                     lblSampleFile.Text = Path.GetFileName(dialog.FileName)
+                    currentSamplePath = dialog.FileName
                     lblRelateStatus.ForeColor = colorSuccess
-                    lblRelateStatus.Text = $"Se encontraron {headers.Count} columna(s) en el archivo."
+                    lblRelateStatus.Text = $"Found {headers.Count} column(s) in the file."
                     pnlLinks.Invalidate()
                 Catch ex As Exception
                     lblRelateStatus.ForeColor = colorError
-                    lblRelateStatus.Text = "Error leyendo el Excel: " & ex.Message
+                    lblRelateStatus.Text = "Error reading the Excel file: " & ex.Message
                 End Try
             End If
         End Using
     End Sub
 
     Private Sub CboRelateProfile_SelectedIndexChanged(sender As Object, e As EventArgs)
-        If String.IsNullOrWhiteSpace(cboRelateProfile.Text) Then Return
-        currentColumnMapping = Sage300.ColumnMappingStore.Load(cboRelateProfile.Text)
+        LoadTemplateIntoRelateColumns(cboRelateProfile.Text)
+    End Sub
+
+    Private Sub LoadTemplateIntoRelateColumns(templateName As String)
+        If String.IsNullOrWhiteSpace(templateName) Then Return
+
+        currentColumnMapping = Sage300.ColumnMappingStore.Load(templateName)
+
+        Dim samplePath = Sage300.TemplateSampleStore.TryGetExistingSamplePath(templateName)
+        If samplePath IsNot Nothing Then
+            Try
+                Dim headers = Sage300.ExcelTransactionReader.ReadHeaders(samplePath)
+                lstActualColumns.Items.Clear()
+                lstActualColumns.Items.AddRange(headers.ToArray())
+                lblSampleFile.Text = Path.GetFileName(samplePath)
+                currentSamplePath = samplePath
+            Catch
+                ' Ignore a stale/corrupted sample copy; the mapping itself still loads fine.
+            End Try
+        End If
+
+        Sage300.AppSettingsStore.SetLastTemplate(templateName)
+
         lblRelateStatus.ForeColor = colorInfo
-        lblRelateStatus.Text = $"Plantilla '{cboRelateProfile.Text}' cargada ({currentColumnMapping.Count} enlace(s))."
+        lblRelateStatus.Text = $"Template '{templateName}' loaded ({currentColumnMapping.Count} link(s))."
         pnlLinks.Invalidate()
     End Sub
 
@@ -906,15 +950,30 @@ Public Class MainForm
         Dim name = cboRelateProfile.Text.Trim()
         If String.IsNullOrWhiteSpace(name) Then
             lblRelateStatus.ForeColor = colorError
-            lblRelateStatus.Text = "Escribe un nombre para la plantilla antes de guardar."
+            lblRelateStatus.Text = "Type a name for the template before saving."
             Return
         End If
 
         Sage300.ColumnMappingStore.Save(name, currentColumnMapping)
+
+        If Not String.IsNullOrWhiteSpace(currentSamplePath) AndAlso File.Exists(currentSamplePath) Then
+            Try
+                Sage300.TemplateSampleStore.SaveSample(name, currentSamplePath)
+            Catch ex As Exception
+                RefreshTemplateList(cboRelateProfile, includeNoneOption:=False)
+                cboRelateProfile.Text = name
+                lblRelateStatus.ForeColor = colorError
+                lblRelateStatus.Text = $"Template saved, but the sample file could not be copied: {ex.Message}"
+                Return
+            End Try
+        End If
+
+        Sage300.AppSettingsStore.SetLastTemplate(name)
+
         RefreshTemplateList(cboRelateProfile, includeNoneOption:=False)
         cboRelateProfile.Text = name
         lblRelateStatus.ForeColor = colorSuccess
-        lblRelateStatus.Text = $"Plantilla '{name}' guardada con {currentColumnMapping.Count} enlace(s)."
+        lblRelateStatus.Text = $"Template '{name}' saved with {currentColumnMapping.Count} link(s)."
     End Sub
 
     Private Sub BtnDeleteProfile_Click(sender As Object, e As EventArgs)
@@ -922,17 +981,26 @@ Public Class MainForm
         If String.IsNullOrWhiteSpace(name) Then Return
 
         Sage300.ColumnMappingStore.Delete(name)
+        Sage300.TemplateSampleStore.DeleteSample(name)
+
+        If Sage300.AppSettingsStore.GetLastTemplate() = name Then
+            Sage300.AppSettingsStore.SetLastTemplate("")
+        End If
+
         RefreshTemplateList(cboRelateProfile, includeNoneOption:=False)
         cboRelateProfile.Text = ""
         currentColumnMapping = New Dictionary(Of String, String)
+        currentSamplePath = Nothing
+        lstActualColumns.Items.Clear()
+        lblSampleFile.Text = "(no file selected)"
         pnlLinks.Invalidate()
         lblRelateStatus.ForeColor = colorInfo
-        lblRelateStatus.Text = $"Plantilla '{name}' eliminada."
+        lblRelateStatus.Text = $"Template '{name}' deleted."
     End Sub
 
 End Class
 
-''' Tabla de colores oscura para el MenuStrip (ToolStripProfessionalRenderer).
+''' Dark color table for the MenuStrip (ToolStripProfessionalRenderer).
 Friend Class DarkMenuColorTable
     Inherits ProfessionalColorTable
 

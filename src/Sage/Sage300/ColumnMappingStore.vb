@@ -6,8 +6,8 @@ Imports System.Text.Json
 
 Namespace Sage300
 
-    ''' Guarda/lee plantillas de mapeo de columnas (columna requerida -> columna real del Excel
-    ''' de una aplicacion de terceros), una por archivo JSON, en la carpeta de datos del usuario.
+    ''' Saves/loads column-mapping templates (required column -> real column from a third-party
+    ''' application's Excel), one JSON file per template, in the user's application data folder.
     Public Class ColumnMappingStore
 
         Private Shared Function GetFolder() As String

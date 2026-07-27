@@ -12,16 +12,16 @@ Namespace Sage300
         Public Property BatchNumber As String
     End Class
 
-    ''' Crea un lote (batch) nuevo de Libro Mayor en Sage 300 a partir de un archivo Excel,
-    ''' usando el objeto COM "ACCPAC.xapiSession" (late binding, sin libreria de interop) --
-    ''' el mismo objeto que usan las aplicaciones de Access del usuario y que SI funciona en
-    ''' esta instalacion (a diferencia de AccpacCOMAPI.AccpacSessionClass, que fallaba con un
-    ''' error de licencia).
+    ''' Creates a new General Ledger batch in Sage 300 from an Excel file, using the
+    ''' "ACCPAC.xapiSession" COM object (late binding, no interop library needed) -- the same
+    ''' object used by the user's Access applications, which does work on this installation
+    ''' (unlike AccpacCOMAPI.AccpacSessionClass, which failed with a licensing error).
     '''
-    ''' Los View ID (GL0006 = asiento/"header", GL0008 = batch, GL0010 = detalle) y los nombres
-    ''' de campo, asi como la secuencia Compose/Init/Update/Insert, fueron tomados directamente
-    ''' de una macro de Access del usuario que ya funciona contra esta misma base de datos.
-    ''' El lote queda sin contabilizar (no se llama Post) para revisarlo en Sage 300 antes de postear.
+    ''' The view IDs (GL0006 = journal entry/"header", GL0008 = batch, GL0010 = detail) and
+    ''' field names, as well as the Compose/Init/Update/Insert sequence, were taken directly
+    ''' from an Access macro of the user's that already works against this same database.
+    ''' The batch is left unposted (Post is never called) so it can be reviewed in Sage 300
+    ''' before posting.
     Public Class Sage300BatchImporter
 
         Private Const ViewJournalEntry As String = "GL0006"
@@ -29,7 +29,7 @@ Namespace Sage300
         Private Const ViewDetail As String = "GL0010"
         Private Const ApplicationId As String = "GL"
 
-        ' Codigo de fuente (Source Code) para el ledger GL, registrado en Common Services > Source Codes.
+        ' Source Code for the GL ledger, registered in Common Services > Source Codes.
         Private Const SourceLedger As String = "GL"
         Private Const SourceType As String = "AR"
 
@@ -43,12 +43,12 @@ Namespace Sage300
                     ToList()
 
                 If entriesByNumber.Count = 0 Then
-                    Return New Sage300ImportResult With {.Success = False, .Message = "El archivo Excel no contiene transacciones válidas."}
+                    Return New Sage300ImportResult With {.Success = False, .Message = "The Excel file does not contain valid transactions."}
                 End If
 
                 Dim sessionType = Type.GetTypeFromProgID("ACCPAC.xapiSession")
                 If sessionType Is Nothing Then
-                    Return New Sage300ImportResult With {.Success = False, .Message = "No se encontró el componente 'ACCPAC.xapiSession' en esta máquina."}
+                    Return New Sage300ImportResult With {.Success = False, .Message = "Could not find the 'ACCPAC.xapiSession' component on this machine."}
                 End If
 
                 session = Activator.CreateInstance(sessionType)
@@ -67,13 +67,13 @@ Namespace Sage300
                 header.Compose(New Object() {batchView, detailView})
                 detailView.Compose(New Object() {header})
 
-                ' Crear el batch (secuencia tal cual la usa la macro de Access de referencia).
+                ' Create the batch (sequence exactly as used by the reference Access macro).
                 batchView.Init()
                 header.Fetch()
                 headerFields("BTCHENTRY").PutWithoutVerification("00000")
 
                 header.Init()
-                batchFields("BTCHDESC").Value = $"Importado desde Excel {Path.GetFileName(excelPath)}"
+                batchFields("BTCHDESC").Value = $"Imported from Excel {Path.GetFileName(excelPath)}"
                 batchView.Update()
 
                 Dim isFirstEntry = True
@@ -109,7 +109,7 @@ Namespace Sage300
 
                 Return New Sage300ImportResult With {
                     .Success = True,
-                    .Message = $"Importación exitosa. Se creó el lote (batch) número {batchNumber} con {entriesByNumber.Count} asiento(s), sin contabilizar. Revísalo en Sage 300 antes de postearlo.",
+                    .Message = $"Import successful. Created batch number {batchNumber} with {entriesByNumber.Count} entry/entries, not yet posted. Review it in Sage 300 before posting.",
                     .BatchNumber = batchNumber
                 }
 
