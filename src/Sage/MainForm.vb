@@ -1,6 +1,7 @@
 Imports System
 Imports System.Data
 Imports System.Drawing
+Imports System.IO
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
 Imports Microsoft.Data.Sql
@@ -21,6 +22,8 @@ Public Class MainForm
     Private ReadOnly colorError As Color = Color.FromArgb(240, 120, 120)
     Private ReadOnly colorInfo As Color = Color.FromArgb(120, 180, 240)
 
+    ' --- Panel: conexion a base de datos SQL ---
+    Private pnlDatabase As Panel
     Private cboServer As ComboBox
     Private cboDatabase As ComboBox
     Private txtUser As TextBox
@@ -36,6 +39,19 @@ Public Class MainForm
 
     Private currentConnectionStringBuilder As SqlConnectionStringBuilder
 
+    ' --- Panel: GL Booking > Batch List (importacion a Sage 300) ---
+    Private pnlBatchList As Panel
+    Private txtSageCompany As TextBox
+    Private txtSageUser As TextBox
+    Private txtSagePassword As TextBox
+    Private txtExcelPath As TextBox
+    Private btnBrowseExcel As Button
+    Private btnImportBatch As Button
+    Private lblBatchStatus As Label
+
+    ' --- Panel: GL Booking > Journal Entry (pendiente) ---
+    Private pnlJournalEntry As Panel
+
     Public Sub New()
         InitializeComponent()
     End Sub
@@ -47,6 +63,70 @@ Public Class MainForm
         Me.StartPosition = FormStartPosition.CenterScreen
         Me.BackColor = colorBackground
         Me.ForeColor = colorText
+
+        Dim menuStrip = BuildMenuStrip()
+        pnlDatabase = BuildDatabasePanel()
+        pnlBatchList = BuildBatchListPanel()
+        pnlJournalEntry = BuildJournalEntryPanel()
+
+        Me.MainMenuStrip = menuStrip
+        Me.Controls.AddRange(New Control() {pnlJournalEntry, pnlBatchList, pnlDatabase, menuStrip})
+
+        ShowPanel(pnlDatabase)
+    End Sub
+
+    ' ==================== MENU ====================
+
+    Private Function BuildMenuStrip() As MenuStrip
+        Dim menuStrip As New MenuStrip With {
+            .Dock = DockStyle.Top,
+            .BackColor = colorPanel,
+            .ForeColor = colorText,
+            .Renderer = New ToolStripProfessionalRenderer(New DarkMenuColorTable(colorPanel, colorAccent))
+        }
+
+        Dim mnuDataBase As New ToolStripMenuItem("Data Base") With {.ForeColor = colorText}
+        Dim mnuConnect As New ToolStripMenuItem("Connect") With {.ForeColor = colorText}
+        Dim mnuDisconnect As New ToolStripMenuItem("Disconnect") With {.ForeColor = colorText}
+        AddHandler mnuConnect.Click, Sub() ShowPanel(pnlDatabase)
+        AddHandler mnuDisconnect.Click, AddressOf MnuDisconnect_Click
+        mnuDataBase.DropDownItems.Add(mnuConnect)
+        mnuDataBase.DropDownItems.Add(mnuDisconnect)
+
+        Dim mnuGLBooking As New ToolStripMenuItem("GL Booking") With {.ForeColor = colorText}
+        Dim mnuJournalEntry As New ToolStripMenuItem("Journal Entry") With {.ForeColor = colorText}
+        Dim mnuBatchList As New ToolStripMenuItem("Batch List") With {.ForeColor = colorText}
+        AddHandler mnuJournalEntry.Click, Sub() ShowPanel(pnlJournalEntry)
+        AddHandler mnuBatchList.Click, Sub() ShowPanel(pnlBatchList)
+        mnuGLBooking.DropDownItems.Add(mnuJournalEntry)
+        mnuGLBooking.DropDownItems.Add(mnuBatchList)
+
+        menuStrip.Items.Add(mnuDataBase)
+        menuStrip.Items.Add(mnuGLBooking)
+
+        Return menuStrip
+    End Function
+
+    Private Sub ShowPanel(panel As Panel)
+        pnlDatabase.Visible = (panel Is pnlDatabase)
+        pnlBatchList.Visible = (panel Is pnlBatchList)
+        pnlJournalEntry.Visible = (panel Is pnlJournalEntry)
+    End Sub
+
+    Private Sub MnuDisconnect_Click(sender As Object, e As EventArgs)
+        currentConnectionStringBuilder = Nothing
+        lstTables.Items.Clear()
+        dgvData.DataSource = Nothing
+        lstRelations.Items.Clear()
+        lblStatus.ForeColor = colorInfo
+        lblStatus.Text = "Desconectado."
+        ShowPanel(pnlDatabase)
+    End Sub
+
+    ' ==================== PANEL: DATA BASE ====================
+
+    Private Function BuildDatabasePanel() As Panel
+        Dim panel As New Panel With {.Dock = DockStyle.Fill, .BackColor = colorBackground}
 
         Dim lblServer As New Label With {.Text = "Servidor:", .Location = New Point(20, 22), .AutoSize = True, .ForeColor = colorText}
         cboServer = New ComboBox With {
@@ -113,9 +193,9 @@ Public Class MainForm
         }
         lstRelations.Columns.Add("Tipo", 100)
         lstRelations.Columns.Add("Tabla relacionada", 172)
-        AddHandler lstRelations.DrawColumnHeader, AddressOf LstTables_DrawColumnHeader
-        AddHandler lstRelations.DrawItem, AddressOf LstTables_DrawItem
-        AddHandler lstRelations.DrawSubItem, AddressOf LstTables_DrawSubItem
+        AddHandler lstRelations.DrawColumnHeader, AddressOf ListView_DrawColumnHeader
+        AddHandler lstRelations.DrawItem, AddressOf ListView_DrawItem
+        AddHandler lstRelations.DrawSubItem, AddressOf ListView_DrawSubItem
 
         lblStatus = New Label With {
             .Location = New Point(20, 234),
@@ -137,12 +217,11 @@ Public Class MainForm
             .BorderStyle = BorderStyle.FixedSingle,
             .OwnerDraw = True
         }
-        lstTables.Columns.Add("Esquema", 95)
-        lstTables.Columns.Add("Tabla", 161)
+        lstTables.Columns.Add("Tabla", 256)
         AddHandler lstTables.ItemSelectionChanged, AddressOf LstTables_ItemSelectionChanged
-        AddHandler lstTables.DrawColumnHeader, AddressOf LstTables_DrawColumnHeader
-        AddHandler lstTables.DrawItem, AddressOf LstTables_DrawItem
-        AddHandler lstTables.DrawSubItem, AddressOf LstTables_DrawSubItem
+        AddHandler lstTables.DrawColumnHeader, AddressOf ListView_DrawColumnHeader
+        AddHandler lstTables.DrawItem, AddressOf ListView_DrawItem
+        AddHandler lstTables.DrawSubItem, AddressOf ListView_DrawSubItem
 
         dgvData = New DataGridView With {
             .Location = New Point(300, 280),
@@ -170,7 +249,7 @@ Public Class MainForm
         dgvData.AlternatingRowsDefaultCellStyle.BackColor = colorAltRow
         dgvData.AlternatingRowsDefaultCellStyle.ForeColor = colorText
 
-        Me.Controls.AddRange(New Control() {
+        panel.Controls.AddRange(New Control() {
             lblServer, cboServer, btnDiscoverServers,
             lblDatabase, cboDatabase, btnDiscoverDatabases,
             lblUser, txtUser,
@@ -182,7 +261,9 @@ Public Class MainForm
             lstTables,
             dgvData
         })
-    End Sub
+
+        Return panel
+    End Function
 
     Private Sub StylePrimaryButton(button As Button)
         button.FlatStyle = FlatStyle.Flat
@@ -199,7 +280,7 @@ Public Class MainForm
         button.FlatAppearance.BorderColor = colorBorder
     End Sub
 
-    Private Sub LstTables_DrawColumnHeader(sender As Object, e As DrawListViewColumnHeaderEventArgs)
+    Private Sub ListView_DrawColumnHeader(sender As Object, e As DrawListViewColumnHeaderEventArgs)
         Using bgBrush As New SolidBrush(colorHeader)
             e.Graphics.FillRectangle(bgBrush, e.Bounds)
         End Using
@@ -209,11 +290,11 @@ Public Class MainForm
         End Using
     End Sub
 
-    Private Sub LstTables_DrawItem(sender As Object, e As DrawListViewItemEventArgs)
+    Private Sub ListView_DrawItem(sender As Object, e As DrawListViewItemEventArgs)
         ' El dibujo real ocurre en DrawSubItem (vista Details); no se necesita nada aquí.
     End Sub
 
-    Private Sub LstTables_DrawSubItem(sender As Object, e As DrawListViewSubItemEventArgs)
+    Private Sub ListView_DrawSubItem(sender As Object, e As DrawListViewSubItemEventArgs)
         Dim isSelected = e.Item.Selected
         Dim backColor = If(isSelected, colorAccent, colorPanel)
         Dim foreColor = If(isSelected, Color.White, colorText)
@@ -275,8 +356,9 @@ Public Class MainForm
                 Using command As New SqlCommand(query, connection)
                     Using reader = Await command.ExecuteReaderAsync()
                         While Await reader.ReadAsync()
-                            Dim item As New ListViewItem(reader.GetString(0))
-                            item.SubItems.Add(reader.GetString(1))
+                            Dim schemaValue = reader.GetString(0)
+                            Dim tableValue = reader.GetString(1)
+                            Dim item As New ListViewItem(tableValue) With {.Tag = schemaValue}
                             lstTables.Items.Add(item)
                         End While
                     End Using
@@ -300,8 +382,8 @@ Public Class MainForm
     Private Async Sub LstTables_ItemSelectionChanged(sender As Object, e As ListViewItemSelectionChangedEventArgs)
         If Not e.IsSelected Then Return
 
-        Dim schemaName = e.Item.Text
-        Dim tableName = e.Item.SubItems(1).Text
+        Dim schemaName = CStr(e.Item.Tag)
+        Dim tableName = e.Item.Text
         Await LoadTableDataAsync(schemaName, tableName)
         Await LoadRelationshipsAsync(schemaName, tableName)
     End Sub
@@ -461,4 +543,194 @@ Public Class MainForm
         End Try
     End Sub
 
+    ' ==================== PANEL: GL BOOKING > BATCH LIST ====================
+
+    Private Function BuildBatchListPanel() As Panel
+        Dim panel As New Panel With {.Dock = DockStyle.Fill, .BackColor = colorBackground, .Visible = False}
+
+        Dim lblCompany As New Label With {.Text = "Compañía:", .Location = New Point(20, 22), .AutoSize = True, .ForeColor = colorText}
+        txtSageCompany = New TextBox With {.Location = New Point(160, 19), .Width = 300, .BackColor = colorPanel, .ForeColor = colorText, .BorderStyle = BorderStyle.FixedSingle}
+
+        Dim lblSageUser As New Label With {.Text = "Usuario Sage:", .Location = New Point(20, 57), .AutoSize = True, .ForeColor = colorText}
+        txtSageUser = New TextBox With {.Location = New Point(160, 54), .Width = 300, .BackColor = colorPanel, .ForeColor = colorText, .BorderStyle = BorderStyle.FixedSingle}
+
+        Dim lblSagePassword As New Label With {.Text = "Contraseña:", .Location = New Point(20, 92), .AutoSize = True, .ForeColor = colorText}
+        txtSagePassword = New TextBox With {.Location = New Point(160, 89), .Width = 300, .PasswordChar = "*"c, .BackColor = colorPanel, .ForeColor = colorText, .BorderStyle = BorderStyle.FixedSingle}
+
+        Dim lblExcelPath As New Label With {.Text = "Archivo Excel (.xlsx):", .Location = New Point(20, 127), .AutoSize = True, .ForeColor = colorText}
+        txtExcelPath = New TextBox With {
+            .Location = New Point(160, 124),
+            .Width = 380,
+            .ReadOnly = True,
+            .BackColor = colorPanel,
+            .ForeColor = colorText,
+            .BorderStyle = BorderStyle.FixedSingle
+        }
+        btnBrowseExcel = New Button With {.Text = "Elegir...", .Location = New Point(548, 123), .Width = 90, .Height = 26}
+        StyleSecondaryButton(btnBrowseExcel)
+        AddHandler btnBrowseExcel.Click, AddressOf BtnBrowseExcel_Click
+
+        btnImportBatch = New Button With {.Text = "Importar", .Location = New Point(160, 167), .Width = 220, .Height = 32}
+        StylePrimaryButton(btnImportBatch)
+        AddHandler btnImportBatch.Click, AddressOf BtnImportBatch_Click
+
+        lblBatchStatus = New Label With {
+            .Location = New Point(20, 215),
+            .Size = New Size(820, 120),
+            .ForeColor = colorInfo,
+            .Text = ""
+        }
+
+        panel.Controls.AddRange(New Control() {
+            lblCompany, txtSageCompany,
+            lblSageUser, txtSageUser,
+            lblSagePassword, txtSagePassword,
+            lblExcelPath, txtExcelPath, btnBrowseExcel,
+            btnImportBatch,
+            lblBatchStatus
+        })
+
+        Return panel
+    End Function
+
+    Private Sub BtnBrowseExcel_Click(sender As Object, e As EventArgs)
+        Using dialog As New OpenFileDialog With {
+            .Filter = "Archivos Excel (*.xlsx)|*.xlsx",
+            .Title = "Selecciona el archivo de transacciones"
+        }
+            If dialog.ShowDialog() = DialogResult.OK Then
+                txtExcelPath.Text = dialog.FileName
+            End If
+        End Using
+    End Sub
+
+    Private Async Sub BtnImportBatch_Click(sender As Object, e As EventArgs)
+        If String.IsNullOrWhiteSpace(txtSageCompany.Text) OrElse String.IsNullOrWhiteSpace(txtSageUser.Text) Then
+            lblBatchStatus.ForeColor = colorError
+            lblBatchStatus.Text = "Especifica la compañía y el usuario de Sage."
+            Return
+        End If
+
+        If String.IsNullOrWhiteSpace(txtExcelPath.Text) OrElse Not File.Exists(txtExcelPath.Text) Then
+            lblBatchStatus.ForeColor = colorError
+            lblBatchStatus.Text = "Selecciona un archivo Excel válido."
+            Return
+        End If
+
+        btnImportBatch.Enabled = False
+        lblBatchStatus.ForeColor = colorInfo
+        lblBatchStatus.Text = "Importando..."
+
+        Dim company = txtSageCompany.Text.Trim()
+        Dim user = txtSageUser.Text.Trim()
+        Dim password = txtSagePassword.Text
+        Dim path = txtExcelPath.Text
+
+        Try
+            Dim result = Await Task.Run(Function() New Sage300.Sage300BatchImporter().ImportBatch(company, user, password, path))
+            lblBatchStatus.ForeColor = If(result.Success, colorSuccess, colorError)
+            lblBatchStatus.Text = result.Message
+        Catch ex As Exception
+            lblBatchStatus.ForeColor = colorError
+            lblBatchStatus.Text = "Error inesperado: " & ex.Message
+        Finally
+            btnImportBatch.Enabled = True
+        End Try
+    End Sub
+
+    ' ==================== PANEL: GL BOOKING > JOURNAL ENTRY (pendiente) ====================
+
+    Private Function BuildJournalEntryPanel() As Panel
+        Dim panel As New Panel With {.Dock = DockStyle.Fill, .BackColor = colorBackground, .Visible = False}
+
+        Dim lblComingSoon As New Label With {
+            .Text = "Journal Entry — próximamente.",
+            .Location = New Point(20, 20),
+            .AutoSize = True,
+            .ForeColor = colorText
+        }
+        panel.Controls.Add(lblComingSoon)
+
+        Return panel
+    End Function
+
+End Class
+
+''' Tabla de colores oscura para el MenuStrip (ToolStripProfessionalRenderer).
+Friend Class DarkMenuColorTable
+    Inherits ProfessionalColorTable
+
+    Private ReadOnly _background As Color
+    Private ReadOnly _highlight As Color
+
+    Public Sub New(background As Color, highlight As Color)
+        _background = background
+        _highlight = highlight
+    End Sub
+
+    Public Overrides ReadOnly Property ToolStripDropDownBackground As Color
+        Get
+            Return _background
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property ImageMarginGradientBegin As Color
+        Get
+            Return _background
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property ImageMarginGradientMiddle As Color
+        Get
+            Return _background
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property ImageMarginGradientEnd As Color
+        Get
+            Return _background
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property MenuItemSelected As Color
+        Get
+            Return _highlight
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property MenuItemSelectedGradientBegin As Color
+        Get
+            Return _highlight
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property MenuItemSelectedGradientEnd As Color
+        Get
+            Return _highlight
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property MenuItemBorder As Color
+        Get
+            Return _highlight
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property MenuStripGradientBegin As Color
+        Get
+            Return _background
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property MenuStripGradientEnd As Color
+        Get
+            Return _background
+        End Get
+    End Property
+
+    Public Overrides ReadOnly Property MenuBorder As Color
+        Get
+            Return _highlight
+        End Get
+    End Property
 End Class
