@@ -6,7 +6,7 @@ Namespace Sage300
 
     ''' Formato esperado del Excel (primera fila = encabezados, sin importar mayusculas/minusculas):
     ''' Entry | Date | Account | Description | Reference | TransAmt
-    ''' TransAmt: positivo = debito, negativo = credito.
+    ''' TransAmt: positivo = debito, negativo = credito (se pasa directo a SCURNAMT con signo).
     ''' Las filas con el mismo numero de "Entry" forman un solo asiento (journal entry)
     ''' con varias lineas dentro del mismo lote (batch).
     Public Class TransactionLine
@@ -15,8 +15,7 @@ Namespace Sage300
         Public Property Account As String
         Public Property Description As String
         Public Property Reference As String
-        Public Property Debit As Decimal
-        Public Property Credit As Decimal
+        Public Property Amount As Decimal
     End Class
 
     Public Class ExcelTransactionReader
@@ -55,16 +54,13 @@ Namespace Sage300
                     Dim row = worksheet.Row(rowNumber)
                     If row.IsEmpty() Then Continue For
 
-                    Dim transAmt = GetNumberOrZero(row.Cell(columnIndex("TRANSAMT")))
-
                     Dim line As New TransactionLine With {
                         .EntryNumber = CInt(GetNumberOrZero(row.Cell(columnIndex("ENTRY")))),
                         .EntryDate = GetDateOrToday(row.Cell(columnIndex("DATE"))),
                         .Account = row.Cell(columnIndex("ACCOUNT")).GetString().Trim(),
                         .Description = row.Cell(columnIndex("DESCRIPTION")).GetString().Trim(),
                         .Reference = row.Cell(columnIndex("REFERENCE")).GetString().Trim(),
-                        .Debit = If(transAmt > 0, transAmt, 0D),
-                        .Credit = If(transAmt < 0, -transAmt, 0D)
+                        .Amount = GetNumberOrZero(row.Cell(columnIndex("TRANSAMT")))
                     }
 
                     If String.IsNullOrWhiteSpace(line.Account) Then Continue For

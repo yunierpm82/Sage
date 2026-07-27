@@ -14,15 +14,8 @@
     <PackageReference Include="ClosedXML" Version="0.104.2" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Interop de la API COM (Business Logic / Views) de Sage 300, tomado de la instalacion
-         local del cliente de Sage 300 2025. Si se compila en otra maquina, ajustar la ruta
-         al archivo Interop.AccpacCOMAPI.dll de esa instalacion (normalmente dentro de la
-         carpeta de un modulo, ej. GL70A, o en Common Files\Sage). -->
-    <Reference Include="Interop.AccpacCOMAPI">
-      <HintPath>C:\Program Files (x86)\Sage\Sage300\GL70A\Interop.AccpacCOMAPI.dll</HintPath>
-      <Private>True</Private>
-    </Reference>
-  </ItemGroup>
+  <!-- La integracion con Sage 300 (Sage300BatchImporter.vb) usa el objeto COM "ACCPAC.xapiSession"
+       por late binding (Type.GetTypeFromProgID), asi que no necesita ninguna referencia de interop,
+       solo que Sage 300 este instalado en la maquina donde corre la app. -->
 
 </Project>

@@ -1,40 +1,42 @@
 Imports System
+Imports System.Collections
 Imports System.Collections.Generic
 Imports System.IO
 Imports System.Linq
-Imports AccpacCOMAPI
 
 Namespace Sage300
 
     Public Class Sage300ImportResult
         Public Property Success As Boolean
         Public Property Message As String
-        Public Property BatchNumber As Integer
+        Public Property BatchNumber As String
     End Class
 
     ''' Crea un lote (batch) nuevo de Libro Mayor en Sage 300 a partir de un archivo Excel,
-    ''' usando la API COM clasica de "Business Logic Views" (AccpacCOMAPI). El lote queda
-    ''' sin contabilizar (no se llama a Post) para que se revise en Sage 300 antes de postear.
+    ''' usando el objeto COM "ACCPAC.xapiSession" (late binding, sin libreria de interop) --
+    ''' el mismo objeto que usan las aplicaciones de Access del usuario y que SI funciona en
+    ''' esta instalacion (a diferencia de AccpacCOMAPI.AccpacSessionClass, que fallaba con un
+    ''' error de licencia).
     '''
-    ''' IMPORTANTE - pendiente de verificar contra un login real:
-    ''' Los View ID (GL0016/GL0017/GL0018) y los nombres de campo de abajo son los valores
-    ''' estandar mas usados en integraciones de Sage 300/Accpac para el modulo de G/L, pero
-    ''' no se pudieron probar de punta a punta desde este entorno (no hay credenciales validas
-    ''' de Sage 300 aqui). Si algo falla, el mensaje de error mostrado en la pantalla dira
-    ''' exactamente que campo o vista no coincide (incluyendo la lista de campos reales de esa
-    ''' vista), lo cual sirve para corregir el nombre correcto rapidamente.
+    ''' Los View ID (GL0006 = asiento/"header", GL0008 = batch, GL0010 = detalle) y los nombres
+    ''' de campo, asi como la secuencia Compose/Init/Update/Insert, fueron tomados directamente
+    ''' de una macro de Access del usuario que ya funciona contra esta misma base de datos.
+    ''' El lote queda sin contabilizar (no se llama Post) para revisarlo en Sage 300 antes de postear.
     Public Class Sage300BatchImporter
 
-        Private Const ViewBatch As String = "GL0016"
-        Private Const ViewJournalEntry As String = "GL0017"
-        Private Const ViewJournalEntryDetail As String = "GL0018"
+        Private Const ViewJournalEntry As String = "GL0006"
+        Private Const ViewBatch As String = "GL0008"
+        Private Const ViewDetail As String = "GL0010"
+        Private Const ApplicationId As String = "GL"
 
-        Private Const AppID As String = "SM"
-        Private Const AppVersion As String = "70A"
-        Private Const ProgramName As String = "SageBatchImport"
+        ' Codigo de fuente (Source Code) para el ledger GL. En el ejemplo de referencia se usaba
+        ' "TM", que es un codigo propio de esa empresa (Common Services > Source Codes). Ajustar
+        ' si la compania de destino usa un codigo distinto para importaciones de GL.
+        Private Const SourceLedger As String = "GL"
+        Private Const SourceType As String = "TM"
 
         Public Function ImportBatch(companyId As String, userId As String, password As String, excelPath As String) As Sage300ImportResult
-            Dim session As AccpacSessionClass = Nothing
+            Dim session As Object = Nothing
 
             Try
                 Dim entriesByNumber = ExcelTransactionReader.ReadEntries(excelPath).
@@ -46,61 +48,66 @@ Namespace Sage300
                     Return New Sage300ImportResult With {.Success = False, .Message = "El archivo Excel no contiene transacciones válidas."}
                 End If
 
-                session = New AccpacSessionClass()
-                session.Init("", AppID, ProgramName, AppVersion)
-                session.Open(userId, password, companyId, DateTime.Today, 0, "")
-
-                Dim dbLink = session.OpenDBLink(tagDBLinkTypeEnum.DBLINK_COMPANY, tagDBLinkFlagsEnum.DBLINK_FLG_READWRITE)
-
-                Dim batchView As AccpacView = Nothing
-                Dim batchOpenCode = dbLink.OpenView(ViewBatch, batchView)
-                If batchOpenCode <> 0 OrElse batchView Is Nothing Then
-                    Return New Sage300ImportResult With {.Success = False, .Message = $"No se pudo abrir la vista de lote ({ViewBatch}). Código de retorno: {batchOpenCode}"}
+                Dim sessionType = Type.GetTypeFromProgID("ACCPAC.xapiSession")
+                If sessionType Is Nothing Then
+                    Return New Sage300ImportResult With {.Success = False, .Message = "No se encontró el componente 'ACCPAC.xapiSession' en esta máquina."}
                 End If
 
-                batchView.RecordClear()
-                SetField(batchView, "DESCRIPTION", $"Importado desde Excel {Path.GetFileName(excelPath)}")
-                SetField(batchView, "SOURCE", "GL")
-                batchView.Insert()
+                session = Activator.CreateInstance(sessionType)
+                session.Open(userId, password, companyId, DateTime.Today, 0)
 
-                Dim batchNumber = CInt(GetField(batchView, "BATCH"))
+                Dim header As Object = session.OpenView(ViewJournalEntry, ApplicationId)
+                Dim headerFields As Object = header.Fields
 
-                Dim entryView As AccpacView = Nothing
-                Dim entryOpenCode = dbLink.OpenView(ViewJournalEntry, entryView)
-                If entryOpenCode <> 0 OrElse entryView Is Nothing Then
-                    Return New Sage300ImportResult With {.Success = False, .Message = $"No se pudo abrir la vista de asiento ({ViewJournalEntry}). Código de retorno: {entryOpenCode}"}
-                End If
+                Dim batchView As Object = session.OpenView(ViewBatch, ApplicationId)
+                Dim batchFields As Object = batchView.Fields
 
-                Dim detailView As AccpacView = Nothing
-                Dim detailOpenCode = dbLink.OpenView(ViewJournalEntryDetail, detailView)
-                If detailOpenCode <> 0 OrElse detailView Is Nothing Then
-                    Return New Sage300ImportResult With {.Success = False, .Message = $"No se pudo abrir la vista de detalle de asiento ({ViewJournalEntryDetail}). Código de retorno: {detailOpenCode}"}
-                End If
+                Dim detailView As Object = session.OpenView(ViewDetail, ApplicationId)
+                Dim detailFields As Object = detailView.Fields
+
+                batchView.Compose(New Object() {header})
+                header.Compose(New Object() {batchView, detailView})
+                detailView.Compose(New Object() {header})
+
+                ' Crear el batch (secuencia tal cual la usa la macro de Access de referencia).
+                batchView.Init()
+                header.Fetch()
+                headerFields("BTCHENTRY").PutWithoutVerification("00000")
+
+                header.Init()
+                batchFields("BTCHDESC").Value = $"Importado desde Excel {Path.GetFileName(excelPath)}"
+                batchView.Update()
+
+                Dim isFirstEntry = True
 
                 For Each entryGroup In entriesByNumber
                     Dim firstLine = entryGroup.First()
 
-                    entryView.RecordClear()
-                    SetField(entryView, "BATCH", batchNumber)
-                    SetField(entryView, "DESCRIPTION", firstLine.Description)
-                    SetField(entryView, "ENTRYDATE", firstLine.EntryDate)
-                    SetField(entryView, "SOURCELEDGER", "GL")
-                    SetField(entryView, "SOURCETYPE", "GL-GE")
-                    entryView.Insert()
+                    If Not isFirstEntry Then
+                        header.Init()
+                    End If
+                    isFirstEntry = False
 
-                    Dim entryNumber = CInt(GetField(entryView, "ENTRY"))
+                    headerFields("SRCELEDGER").Value = SourceLedger
+                    headerFields("SRCETYPE").Value = SourceType
+                    headerFields("FSCSPERD").Value = firstLine.EntryDate.Month
+                    headerFields("DATEENTRY").Value = DateTime.Today
+                    headerFields("JRNLDESC").Value = firstLine.Description
 
                     For Each line In entryGroup
-                        detailView.RecordClear()
-                        SetField(detailView, "BATCH", batchNumber)
-                        SetField(detailView, "ENTRY", entryNumber)
-                        SetField(detailView, "ACCTID", line.Account)
-                        SetField(detailView, "DESCRIPTION", line.Description)
-                        SetField(detailView, "REFERENCE", line.Reference)
-                        SetField(detailView, "AMOUNT", If(line.Debit <> 0, line.Debit, -line.Credit))
+                        detailView.Init()
+                        detailFields("ACCTID").Value = line.Account
+                        detailFields("TRANSDESC").Value = line.Description
+                        detailFields("TRANSREF").Value = line.Reference
+                        detailFields("SCURNAMT").Value = line.Amount
+                        detailFields("TRANSDATE").Value = line.EntryDate
                         detailView.Insert()
                     Next
+
+                    header.Insert()
                 Next
+
+                Dim batchNumber = Convert.ToString(batchFields("BATCHID").Value)
 
                 Return New Sage300ImportResult With {
                     .Success = True,
@@ -109,7 +116,8 @@ Namespace Sage300
                 }
 
             Catch ex As Exception
-                Return New Sage300ImportResult With {.Success = False, .Message = ex.Message}
+                Dim detail = TryGetAccpacErrors(session)
+                Return New Sage300ImportResult With {.Success = False, .Message = If(detail, ex.Message)}
             Finally
                 Try
                     If session IsNot Nothing Then session.Close()
@@ -118,32 +126,26 @@ Namespace Sage300
             End Try
         End Function
 
-        Private Sub SetField(view As AccpacView, fieldName As String, value As Object)
-            Dim field As AccpacViewField
+        Private Function TryGetAccpacErrors(session As Object) As String
             Try
-                field = view.Fields.FieldByName(fieldName)
-            Catch
-                Throw New Exception($"El campo '{fieldName}' no existe en la vista {view.ViewID}. Campos disponibles: {String.Join(", ", GetFieldNames(view))}")
-            End Try
-            field.Value = value
-        End Sub
+                If session Is Nothing Then Return Nothing
 
-        Private Function GetField(view As AccpacView, fieldName As String) As Object
-            Dim field As AccpacViewField
-            Try
-                field = view.Fields.FieldByName(fieldName)
-            Catch
-                Throw New Exception($"El campo '{fieldName}' no existe en la vista {view.ViewID}. Campos disponibles: {String.Join(", ", GetFieldNames(view))}")
-            End Try
-            Return field.Value
-        End Function
+                Dim errors As Object = session.errors
+                If errors Is Nothing Then Return Nothing
 
-        Private Function GetFieldNames(view As AccpacView) As List(Of String)
-            Dim names As New List(Of String)
-            For i = 0 To view.Fields.Count - 1
-                names.Add(view.Fields.FieldByIndex(i).Name)
-            Next
-            Return names
+                Dim count As Integer = CInt(errors.Count)
+                If count = 0 Then Return Nothing
+
+                Dim messages As New List(Of String)
+                For Each errorItem In DirectCast(errors, IEnumerable)
+                    messages.Add(Convert.ToString(errorItem.Description))
+                Next
+
+                errors.Clear()
+                Return String.Join(" | ", messages)
+            Catch
+                Return Nothing
+            End Try
         End Function
 
     End Class
