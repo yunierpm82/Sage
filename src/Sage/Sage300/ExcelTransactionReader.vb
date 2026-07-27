@@ -5,7 +5,8 @@ Imports ClosedXML.Excel
 Namespace Sage300
 
     ''' Formato esperado del Excel (primera fila = encabezados, sin importar mayusculas/minusculas):
-    ''' Entry | Date | Account | Description | Reference | Debit | Credit
+    ''' Entry | Date | Account | Description | Reference | TransAmt
+    ''' TransAmt: positivo = debito, negativo = credito.
     ''' Las filas con el mismo numero de "Entry" forman un solo asiento (journal entry)
     ''' con varias lineas dentro del mismo lote (batch).
     Public Class TransactionLine
@@ -21,7 +22,7 @@ Namespace Sage300
     Public Class ExcelTransactionReader
 
         Private Shared ReadOnly RequiredColumns As String() = {
-            "ENTRY", "DATE", "ACCOUNT", "DESCRIPTION", "REFERENCE", "DEBIT", "CREDIT"
+            "ENTRY", "DATE", "ACCOUNT", "DESCRIPTION", "REFERENCE", "TRANSAMT"
         }
 
         Public Shared Function ReadEntries(filePath As String) As List(Of TransactionLine)
@@ -54,14 +55,16 @@ Namespace Sage300
                     Dim row = worksheet.Row(rowNumber)
                     If row.IsEmpty() Then Continue For
 
+                    Dim transAmt = GetNumberOrZero(row.Cell(columnIndex("TRANSAMT")))
+
                     Dim line As New TransactionLine With {
                         .EntryNumber = CInt(GetNumberOrZero(row.Cell(columnIndex("ENTRY")))),
                         .EntryDate = GetDateOrToday(row.Cell(columnIndex("DATE"))),
                         .Account = row.Cell(columnIndex("ACCOUNT")).GetString().Trim(),
                         .Description = row.Cell(columnIndex("DESCRIPTION")).GetString().Trim(),
                         .Reference = row.Cell(columnIndex("REFERENCE")).GetString().Trim(),
-                        .Debit = GetNumberOrZero(row.Cell(columnIndex("DEBIT"))),
-                        .Credit = GetNumberOrZero(row.Cell(columnIndex("CREDIT")))
+                        .Debit = If(transAmt > 0, transAmt, 0D),
+                        .Credit = If(transAmt < 0, -transAmt, 0D)
                     }
 
                     If String.IsNullOrWhiteSpace(line.Account) Then Continue For
