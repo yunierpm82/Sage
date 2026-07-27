@@ -5,8 +5,8 @@ Imports ClosedXML.Excel
 Namespace Sage300
 
     ''' Formato esperado del Excel (primera fila = encabezados, sin importar mayusculas/minusculas):
-    ''' Entrada | Fecha | Cuenta | Descripcion | Referencia | Debito | Credito
-    ''' Las filas con el mismo numero de "Entrada" forman un solo asiento (journal entry)
+    ''' Entry | Date | Account | Description | Reference | Debit | Credit
+    ''' Las filas con el mismo numero de "Entry" forman un solo asiento (journal entry)
     ''' con varias lineas dentro del mismo lote (batch).
     Public Class TransactionLine
         Public Property EntryNumber As Integer
@@ -21,7 +21,7 @@ Namespace Sage300
     Public Class ExcelTransactionReader
 
         Private Shared ReadOnly RequiredColumns As String() = {
-            "ENTRADA", "FECHA", "CUENTA", "DESCRIPCION", "REFERENCIA", "DEBITO", "CREDITO"
+            "ENTRY", "DATE", "ACCOUNT", "DESCRIPTION", "REFERENCE", "DEBIT", "CREDIT"
         }
 
         Public Shared Function ReadEntries(filePath As String) As List(Of TransactionLine)
@@ -55,13 +55,13 @@ Namespace Sage300
                     If row.IsEmpty() Then Continue For
 
                     Dim line As New TransactionLine With {
-                        .EntryNumber = CInt(GetNumberOrZero(row.Cell(columnIndex("ENTRADA")))),
-                        .EntryDate = GetDateOrToday(row.Cell(columnIndex("FECHA"))),
-                        .Account = row.Cell(columnIndex("CUENTA")).GetString().Trim(),
-                        .Description = row.Cell(columnIndex("DESCRIPCION")).GetString().Trim(),
-                        .Reference = row.Cell(columnIndex("REFERENCIA")).GetString().Trim(),
-                        .Debit = GetNumberOrZero(row.Cell(columnIndex("DEBITO"))),
-                        .Credit = GetNumberOrZero(row.Cell(columnIndex("CREDITO")))
+                        .EntryNumber = CInt(GetNumberOrZero(row.Cell(columnIndex("ENTRY")))),
+                        .EntryDate = GetDateOrToday(row.Cell(columnIndex("DATE"))),
+                        .Account = row.Cell(columnIndex("ACCOUNT")).GetString().Trim(),
+                        .Description = row.Cell(columnIndex("DESCRIPTION")).GetString().Trim(),
+                        .Reference = row.Cell(columnIndex("REFERENCE")).GetString().Trim(),
+                        .Debit = GetNumberOrZero(row.Cell(columnIndex("DEBIT"))),
+                        .Credit = GetNumberOrZero(row.Cell(columnIndex("CREDIT")))
                     }
 
                     If String.IsNullOrWhiteSpace(line.Account) Then Continue For
