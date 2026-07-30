@@ -43,12 +43,13 @@ Namespace Sage300
         Private currentSamplePath As String = Nothing
         Private hasLoadedInitialTemplate As Boolean = False
 
+        ''' The caller decides Dock/Location/Visible (Dock=Fill for a standalone screen like GL's
+        ''' Relate Columns; left at defaults when embedded inside another panel, e.g. APModulePanel).
         Public Sub New(category As String, requiredColumnKeys As String())
             Me.category = category
             Me.requiredColumnKeys = requiredColumnKeys
-            Me.Dock = DockStyle.Fill
             Me.BackColor = colorBackground
-            Me.Visible = False
+            Me.Size = New Size(700, 470)
             BuildUI()
         End Sub
 
@@ -70,30 +71,30 @@ Namespace Sage300
         Private Sub BuildUI()
             Dim lblProfile As New Label With {.Text = "Template:", .Location = New Point(20, 18), .AutoSize = True, .ForeColor = colorText}
             cboProfile = New ComboBox With {
-                .Location = New Point(100, 15),
-                .Width = 220,
+                .Location = New Point(120, 15),
+                .Width = 200,
                 .DropDownStyle = ComboBoxStyle.DropDown,
                 .BackColor = colorPanel,
                 .ForeColor = colorText
             }
             AddHandler cboProfile.SelectedIndexChanged, Sub() LoadTemplate(cboProfile.Text)
 
-            btnSaveProfile = New Button With {.Text = "Save", .Location = New Point(330, 14), .Width = 100, .Height = 26}
+            btnSaveProfile = New Button With {.Text = "Save", .Location = New Point(330, 13), .Width = 100, .Height = 30}
             StylePrimaryButton(btnSaveProfile)
             AddHandler btnSaveProfile.Click, AddressOf BtnSaveProfile_Click
 
-            btnDeleteProfile = New Button With {.Text = "Delete", .Location = New Point(440, 14), .Width = 100, .Height = 26}
+            btnDeleteProfile = New Button With {.Text = "Delete", .Location = New Point(440, 13), .Width = 100, .Height = 30}
             StyleSecondaryButton(btnDeleteProfile)
             AddHandler btnDeleteProfile.Click, AddressOf BtnDeleteProfile_Click
 
-            btnChooseSample = New Button With {.Text = "Choose sample Excel...", .Location = New Point(20, 55), .Width = 220, .Height = 26}
+            btnChooseSample = New Button With {.Text = "Choose sample Excel...", .Location = New Point(20, 58), .Width = 240, .Height = 30}
             StyleSecondaryButton(btnChooseSample)
             AddHandler btnChooseSample.Click, AddressOf BtnChooseSample_Click
 
             lblSampleFile = New Label With {
                 .Text = "(no file selected)",
-                .Location = New Point(250, 59),
-                .Size = New Size(500, 20),
+                .Location = New Point(270, 64),
+                .Size = New Size(420, 20),
                 .ForeColor = colorText,
                 .AutoEllipsis = True
             }

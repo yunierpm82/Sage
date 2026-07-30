@@ -31,7 +31,10 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Dirs]
 Name: "{app}\Plantillas"; Permissions: users-modify
-Name: "{app}\Plantillas\AP"; Permissions: users-modify
+Name: "{app}\Plantillas\AP\Invoice Entry"; Permissions: users-modify
+Name: "{app}\Plantillas\AP\Invoice Batch List"; Permissions: users-modify
+Name: "{app}\Plantillas\AP\Payment Entry"; Permissions: users-modify
+Name: "{app}\Plantillas\AP\Payment Batch List"; Permissions: users-modify
 
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs

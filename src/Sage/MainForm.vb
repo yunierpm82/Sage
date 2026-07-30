@@ -60,12 +60,12 @@ Public Class MainForm
     Private pnlRelateColumns As Sage300.ColumnMappingPanel
     Private ReadOnly NoTemplateOption As String = "(No template — exact names)"
 
-    ' --- Panels: AP Booking ---
-    Private pnlAPConfigureColumns As Sage300.ColumnMappingPanel
-    Private pnlAPInvoiceEntry As Panel
-    Private pnlAPInvoiceBatchList As Panel
-    Private pnlAPPaymentEntry As Panel
-    Private pnlAPPaymentBatchList As Panel
+    ' --- Panels: AP Booking (each is column-mapping + connect-to-Sage fields, stored under its
+    ' own "AP\<module name>" template folder) ---
+    Private pnlAPInvoiceEntry As Sage300.APModulePanel
+    Private pnlAPInvoiceBatchList As Sage300.APModulePanel
+    Private pnlAPPaymentEntry As Sage300.APModulePanel
+    Private pnlAPPaymentBatchList As Sage300.APModulePanel
 
     Public Sub New()
         InitializeComponent()
@@ -83,17 +83,21 @@ Public Class MainForm
         pnlDatabase = BuildDatabasePanel()
         pnlBatchList = BuildBatchListPanel()
         pnlJournalEntry = BuildComingSoonPanel("Journal Entry — coming soon.")
-        pnlRelateColumns = New Sage300.ColumnMappingPanel(Nothing, Sage300.ExcelTransactionReader.RequiredColumnKeys)
+        pnlRelateColumns = New Sage300.ColumnMappingPanel(Nothing, Sage300.ExcelTransactionReader.RequiredColumnKeys) With {
+            .Dock = DockStyle.Fill,
+            .Visible = False
+        }
 
-        pnlAPConfigureColumns = New Sage300.ColumnMappingPanel("AP", Sage300.APInvoiceColumns.RequiredColumnKeys)
-        pnlAPInvoiceEntry = BuildComingSoonPanel("Invoice Entry — coming soon.")
-        pnlAPInvoiceBatchList = BuildComingSoonPanel("Invoice Batch List — coming soon.")
-        pnlAPPaymentEntry = BuildComingSoonPanel("Payment Entry — coming soon.")
-        pnlAPPaymentBatchList = BuildComingSoonPanel("Payment Batch List — coming soon.")
+        ' Only Invoice Entry's required columns are known so far (from Sage 300's own
+        ' APInvoice1.xlsx template); the other three will be researched later.
+        pnlAPInvoiceEntry = New Sage300.APModulePanel("Invoice Entry", Sage300.APInvoiceColumns.RequiredColumnKeys)
+        pnlAPInvoiceBatchList = New Sage300.APModulePanel("Invoice Batch List", Array.Empty(Of String))
+        pnlAPPaymentEntry = New Sage300.APModulePanel("Payment Entry", Array.Empty(Of String))
+        pnlAPPaymentBatchList = New Sage300.APModulePanel("Payment Batch List", Array.Empty(Of String))
 
         Me.MainMenuStrip = menuStrip
         Me.Controls.AddRange(New Control() {
-            pnlAPPaymentBatchList, pnlAPPaymentEntry, pnlAPInvoiceBatchList, pnlAPInvoiceEntry, pnlAPConfigureColumns,
+            pnlAPPaymentBatchList, pnlAPPaymentEntry, pnlAPInvoiceBatchList, pnlAPInvoiceEntry,
             pnlJournalEntry, pnlRelateColumns, pnlBatchList, pnlDatabase, menuStrip
         })
 
@@ -130,17 +134,14 @@ Public Class MainForm
         mnuGLBooking.DropDownItems.Add(mnuRelateColumns)
 
         Dim mnuAPBooking As New ToolStripMenuItem("AP Booking") With {.ForeColor = colorText}
-        Dim mnuAPConfigureColumns As New ToolStripMenuItem("Configure Columns") With {.ForeColor = colorText}
         Dim mnuAPInvoiceEntry As New ToolStripMenuItem("Invoice Entry") With {.ForeColor = colorText}
         Dim mnuAPInvoiceBatchList As New ToolStripMenuItem("Invoice Batch List") With {.ForeColor = colorText}
         Dim mnuAPPaymentEntry As New ToolStripMenuItem("Payment Entry") With {.ForeColor = colorText}
         Dim mnuAPPaymentBatchList As New ToolStripMenuItem("Payment Batch List") With {.ForeColor = colorText}
-        AddHandler mnuAPConfigureColumns.Click, AddressOf MnuAPConfigureColumns_Click
-        AddHandler mnuAPInvoiceEntry.Click, Sub() ShowPanel(pnlAPInvoiceEntry)
-        AddHandler mnuAPInvoiceBatchList.Click, Sub() ShowPanel(pnlAPInvoiceBatchList)
-        AddHandler mnuAPPaymentEntry.Click, Sub() ShowPanel(pnlAPPaymentEntry)
-        AddHandler mnuAPPaymentBatchList.Click, Sub() ShowPanel(pnlAPPaymentBatchList)
-        mnuAPBooking.DropDownItems.Add(mnuAPConfigureColumns)
+        AddHandler mnuAPInvoiceEntry.Click, Sub() ShowAPPanel(pnlAPInvoiceEntry)
+        AddHandler mnuAPInvoiceBatchList.Click, Sub() ShowAPPanel(pnlAPInvoiceBatchList)
+        AddHandler mnuAPPaymentEntry.Click, Sub() ShowAPPanel(pnlAPPaymentEntry)
+        AddHandler mnuAPPaymentBatchList.Click, Sub() ShowAPPanel(pnlAPPaymentBatchList)
         mnuAPBooking.DropDownItems.Add(mnuAPInvoiceEntry)
         mnuAPBooking.DropDownItems.Add(mnuAPInvoiceBatchList)
         mnuAPBooking.DropDownItems.Add(mnuAPPaymentEntry)
@@ -158,16 +159,15 @@ Public Class MainForm
         pnlBatchList.Visible = (panel Is pnlBatchList)
         pnlJournalEntry.Visible = (panel Is pnlJournalEntry)
         pnlRelateColumns.Visible = (panel Is pnlRelateColumns)
-        pnlAPConfigureColumns.Visible = (panel Is pnlAPConfigureColumns)
         pnlAPInvoiceEntry.Visible = (panel Is pnlAPInvoiceEntry)
         pnlAPInvoiceBatchList.Visible = (panel Is pnlAPInvoiceBatchList)
         pnlAPPaymentEntry.Visible = (panel Is pnlAPPaymentEntry)
         pnlAPPaymentBatchList.Visible = (panel Is pnlAPPaymentBatchList)
     End Sub
 
-    Private Sub MnuAPConfigureColumns_Click(sender As Object, e As EventArgs)
-        pnlAPConfigureColumns.ActivateFirstLoad()
-        ShowPanel(pnlAPConfigureColumns)
+    Private Sub ShowAPPanel(panel As Sage300.APModulePanel)
+        panel.ActivateFirstLoad()
+        ShowPanel(panel)
     End Sub
 
     Private Sub MnuBatchList_Click(sender As Object, e As EventArgs)
@@ -656,11 +656,11 @@ Public Class MainForm
             .ForeColor = colorText,
             .BorderStyle = BorderStyle.FixedSingle
         }
-        btnBrowseExcel = New Button With {.Text = "Choose...", .Location = New Point(548, 123), .Width = 90, .Height = 26}
+        btnBrowseExcel = New Button With {.Text = "Choose...", .Location = New Point(548, 121), .Width = 90, .Height = 30}
         StyleSecondaryButton(btnBrowseExcel)
         AddHandler btnBrowseExcel.Click, AddressOf BtnBrowseExcel_Click
 
-        Dim lblTemplate As New Label With {.Text = "Column template:", .Location = New Point(20, 162), .AutoSize = True, .ForeColor = colorText}
+        Dim lblTemplate As New Label With {.Text = "Template:", .Location = New Point(20, 162), .AutoSize = True, .ForeColor = colorText}
         cboBatchTemplate = New ComboBox With {
             .Location = New Point(160, 159),
             .Width = 300,
